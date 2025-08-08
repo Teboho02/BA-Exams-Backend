@@ -1,0 +1,42 @@
+.
+├── MONGO_CONFIG.MD
+├── README.md
+├── SETUP_INFO.md
+├── config
+│   ├── constants.js
+│   ├── database.js
+│   └── postgres.js
+├── controllers
+│   ├── assignment.controller.js
+│   ├── auth.controller.js
+│   ├── course.controller.js
+│   ├── grade.controller.js
+│   ├── quiz.controller.js
+│   └── user.controller.js
+├── eslint.config.js
+├── middleware
+│   ├── auth.middleware.js
+│   ├── error.middleware.js
+│   └── validation.middleware.js
+├── models
+│   ├── Assignment.js
+│   ├── Course.js
+│   ├── Grade.js
+│   └── User.js
+├── package-lock.json
+├── package.json
+├── public
+│   └── uploads
+├── py.py
+├── routes
+│   ├── assignment.routes.js
+│   ├── auth.routes.js
+│   ├── course.routes.js
+│   ├── grade.routes.js
+│   ├── quiz.routes.js
+│   └── user.routes.js
+├── server.js
+└── utils
+    ├── apiFeatures.js
+    ├── email.js
+    └── errorHandler.js

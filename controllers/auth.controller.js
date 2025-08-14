@@ -138,10 +138,21 @@ export const login = async (req, res) => {
     // Generate tokens
     const { accessToken, refreshToken } = generateTokens(userData.id);
 
+    res.cookie('accessToken', accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    });
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+    });
+
     res.json(createSuccessResponse({
       user: sanitizeUser(userData),
-      accessToken,
-      refreshToken
     }, 'Login successful'));
 
   } catch (error) {
@@ -153,9 +164,7 @@ export const login = async (req, res) => {
 // Logout user (with token blacklisting if needed)
 export const logout = async (req, res) => {
   try {
-    // In a more sophisticated setup, you might want to blacklist the token
-    // For now, we'll just return a success message
-    // The client should remove the token from storage
+
     
     res.json(createSuccessResponse({}, 'Logout successful'));
   } catch (error) {

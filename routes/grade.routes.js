@@ -260,134 +260,134 @@ app.get('/api/student/courses/:courseId/grades', authenticateToken, async (req, 
   }
 });
 
-// 3. GET /api/student/assignment/:assignmentId/review - Get assignment details for review
-app.get('/api/student/assignment/:assignmentId/review', authenticateToken, async (req, res) => {
-  try {
-    const { assignmentId } = req.params;
-    const studentId = req.user.id;
+  // 3. GET /api/student/assignment/:assignmentId/review - Get assignment details for review
+  app.get('/api/student/assignment/:assignmentId/review', authenticateToken, async (req, res) => {
+    try {
+      const { assignmentId } = req.params;
+      const studentId = req.user.id;
 
-    // Get assignment details with submission
-    const query = `
-      SELECT 
-        a.*,
-        c.title as course_title,
-        c.code as course_code,
-        sub.id as submission_id,
-        sub.score,
-        sub.submitted_at,
-        sub.graded_at,
-        sub.status,
-        sub.feedback,
-        sub.content as submission_content,
-        sub.file_url,
-        sub.quiz_data,
-        sub.attempt_number,
-        sub.time_started,
-        sub.time_completed,
-        -- Get instructor info
-        u.first_name as instructor_first_name,
-        u.last_name as instructor_last_name
-      FROM assignments a
-      JOIN courses c ON a.course_id = c.id
-      JOIN users u ON c.instructor_id = u.id
-      LEFT JOIN assignment_submissions sub ON a.id = sub.assignment_id AND sub.student_id = $2
-      WHERE a.id = $1
-    `;
-
-    const result = await db.query(query, [assignmentId, studentId]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Assignment not found'
-      });
-    }
-
-    const assignment = result.rows[0];
-
-    // For quizzes, get questions and answers
-    let questions = [];
-    if (assignment.assignment_type === 'quiz' && assignment.submission_id) {
-      const questionsQuery = `
+      // Get assignment details with submission
+      const query = `
         SELECT 
-          q.id,
-          q.question_number,
-          q.title,
-          q.question_text,
-          q.question_type,
-          q.points,
-          q.image_url,
-          -- Get all possible answers
-          json_agg(
-            json_build_object(
-              'id', qa.id,
-              'answer_text', qa.answer_text,
-              'is_correct', qa.is_correct,
-              'feedback', qa.feedback,
-              'answer_order', qa.answer_order
-            ) ORDER BY qa.answer_order
-          ) as answers
-        FROM quiz_questions q
-        LEFT JOIN quiz_question_answers qa ON q.id = qa.question_id
-        WHERE q.assignment_id = $1
-        GROUP BY q.id, q.question_number, q.title, q.question_text, q.question_type, q.points, q.image_url
-        ORDER BY q.question_number
+          a.*,
+          c.title as course_title,
+          c.code as course_code,
+          sub.id as submission_id,
+          sub.score,
+          sub.submitted_at,
+          sub.graded_at,
+          sub.status,
+          sub.feedback,
+          sub.content as submission_content,
+          sub.file_url,
+          sub.quiz_data,
+          sub.attempt_number,
+          sub.time_started,
+          sub.time_completed,
+          -- Get instructor info
+          u.first_name as instructor_first_name,
+          u.last_name as instructor_last_name
+        FROM assignments a
+        JOIN courses c ON a.course_id = c.id
+        JOIN users u ON c.instructor_id = u.id
+        LEFT JOIN assignment_submissions sub ON a.id = sub.assignment_id AND sub.student_id = $2
+        WHERE a.id = $1
       `;
 
-      const questionsResult = await db.query(questionsQuery, [assignmentId]);
-      questions = questionsResult.rows;
-    }
+      const result = await db.query(query, [assignmentId, studentId]);
 
-    const reviewData = {
-      assignment: {
-        id: assignment.id,
-        title: assignment.title,
-        description: assignment.description,
-        instructions: assignment.instructions,
-        assignmentType: assignment.assignment_type,
-        maxPoints: assignment.max_points,
-        dueDate: assignment.due_date,
-        course: {
-          title: assignment.course_title,
-          code: assignment.course_code
+      if (result.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'Assignment not found'
+        });
+      }
+
+      const assignment = result.rows[0];
+
+      // For quizzes, get questions and answers
+      let questions = [];
+      if (assignment.assignment_type === 'quiz' && assignment.submission_id) {
+        const questionsQuery = `
+          SELECT 
+            q.id,
+            q.question_number,
+            q.title,
+            q.question_text,
+            q.question_type,
+            q.points,
+            q.image_url,
+            -- Get all possible answers
+            json_agg(
+              json_build_object(
+                'id', qa.id,
+                'answer_text', qa.answer_text,
+                'is_correct', qa.is_correct,
+                'feedback', qa.feedback,
+                'answer_order', qa.answer_order
+              ) ORDER BY qa.answer_order
+            ) as answers
+          FROM quiz_questions q
+          LEFT JOIN quiz_question_answers qa ON q.id = qa.question_id
+          WHERE q.assignment_id = $1
+          GROUP BY q.id, q.question_number, q.title, q.question_text, q.question_type, q.points, q.image_url
+          ORDER BY q.question_number
+        `;
+
+        const questionsResult = await db.query(questionsQuery, [assignmentId]);
+        questions = questionsResult.rows;
+      }
+
+      const reviewData = {
+        assignment: {
+          id: assignment.id,
+          title: assignment.title,
+          description: assignment.description,
+          instructions: assignment.instructions,
+          assignmentType: assignment.assignment_type,
+          maxPoints: assignment.max_points,
+          dueDate: assignment.due_date,
+          course: {
+            title: assignment.course_title,
+            code: assignment.course_code
+          },
+          instructor: {
+            firstName: assignment.instructor_first_name,
+            lastName: assignment.instructor_last_name
+          }
         },
-        instructor: {
-          firstName: assignment.instructor_first_name,
-          lastName: assignment.instructor_last_name
-        }
-      },
-      submission: assignment.submission_id ? {
-        id: assignment.submission_id,
-        score: assignment.score,
-        submittedAt: assignment.submitted_at,
-        gradedAt: assignment.graded_at,
-        status: assignment.status,
-        feedback: assignment.feedback,
-        content: assignment.submission_content,
-        fileUrl: assignment.file_url,
-        quizData: assignment.quiz_data,
-        attemptNumber: assignment.attempt_number,
-        timeStarted: assignment.time_started,
-        timeCompleted: assignment.time_completed,
-        percentage: assignment.score && assignment.max_points ? 
-          Math.round((assignment.score / assignment.max_points) * 1000) / 10 : null
-      } : null,
-      questions: questions
-    };
+        submission: assignment.submission_id ? {
+          id: assignment.submission_id,
+          score: assignment.score,
+          submittedAt: assignment.submitted_at,
+          gradedAt: assignment.graded_at,
+          status: assignment.status,
+          feedback: assignment.feedback,
+          content: assignment.submission_content,
+          fileUrl: assignment.file_url,
+          quizData: assignment.quiz_data,
+          attemptNumber: assignment.attempt_number,
+          timeStarted: assignment.time_started,
+          timeCompleted: assignment.time_completed,
+          percentage: assignment.score && assignment.max_points ? 
+            Math.round((assignment.score / assignment.max_points) * 1000) / 10 : null
+        } : null,
+        questions: questions
+      };
 
-    res.json({
-      success: true,
-      data: reviewData
-    });
+      res.json({
+        success: true,
+        data: reviewData
+      });
 
-  } catch (error) {
-    console.error('Error fetching assignment review:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch assignment review'
-    });
-  }
-});
+    } catch (error) {
+      console.error('Error fetching assignment review:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch assignment review'
+      });
+    }
+  });
 
 // Helper function to calculate letter grade
 function calculateLetterGrade(percentage) {

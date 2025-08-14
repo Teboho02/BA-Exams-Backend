@@ -35,7 +35,6 @@ const validateStudentId = [
     .withMessage('Student ID must be a valid UUID')
 ];
 
-// ADD THIS NEW ROUTE - PLACE IT BEFORE OTHER ROUTES TO AVOID CONFLICTS
 /**
  * @route   GET /api/quiz/all-data
  * @desc    Get all courses, assessments, and marks for the authenticated student

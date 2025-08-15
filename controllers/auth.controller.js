@@ -156,7 +156,7 @@ res.json(createSuccessResponse({
   user: sanitizeUser(userData),
   accessToken,        // Add this line
   refreshToken       // Add this line  
-}, 'Login successful'));xd
+}, 'Login successful'));
 
   } catch (error) {
     console.error('Login error:', error);

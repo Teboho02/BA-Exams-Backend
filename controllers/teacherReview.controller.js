@@ -108,7 +108,7 @@ export const getAssessmentReview = async (req, res) => {
     let questions = [];
     let correctAnswersMap = {};
     let shortAnswerOptionsMap = {};
-    
+
     if (assignment.assignment_type === 'quiz') {
       // Fetch questions with multiple choice answers
       const { data: questionsData, error: questionsError } = await supabase
@@ -209,19 +209,19 @@ export const getAssessmentReview = async (req, res) => {
       }
 
       let cleanStudentAnswer = studentAnswer.trim();
-      
+
       for (const acceptable of acceptableAnswers) {
         let cleanAcceptableAnswer = acceptable.answer_text.trim();
-        
+
         // Handle case sensitivity
         if (!caseSensitive && !acceptable.is_case_sensitive) {
           cleanStudentAnswer = cleanStudentAnswer.toLowerCase();
           cleanAcceptableAnswer = cleanAcceptableAnswer.toLowerCase();
         }
-        
+
         // Check match type
         const isExactMatch = acceptable.is_exact_match !== undefined ? acceptable.is_exact_match : (matchType === 'exact');
-        
+
         if (isExactMatch) {
           if (cleanStudentAnswer === cleanAcceptableAnswer) {
             return true;
@@ -232,13 +232,13 @@ export const getAssessmentReview = async (req, res) => {
           }
         }
       }
-      
+
       return false;
     };
 
     // 3. Get all enrolled students in the course
     console.log('Fetching enrollments for course ID:', course.id);
-    
+
     const { data: enrollments, error: enrollmentError } = await supabase
       .from('course_enrollments')
       .select(`
@@ -304,9 +304,9 @@ export const getAssessmentReview = async (req, res) => {
 
     // 4. Get all submissions for this assessment from enrolled students
     const studentIds = enrollments.map(e => e.student_id);
-    
+
     console.log('Fetching submissions for', studentIds.length, 'students');
-    
+
     const { data: submissions, error: submissionError } = await supabase
       .from('assignment_submissions')
       .select(`
@@ -348,7 +348,7 @@ export const getAssessmentReview = async (req, res) => {
         const diffMs = endTime - startTime;
         timeSpentMinutes = Math.round(diffMs / (1000 * 60));
       }
-      
+
       return {
         ...sub,
         time_spent_minutes: timeSpentMinutes
@@ -358,7 +358,7 @@ export const getAssessmentReview = async (req, res) => {
     // 5. Process submissions - get best/latest per student
     const submissionMap = {};
     const allSubmissionsMap = {};
-    
+
     processedSubmissions.forEach(sub => {
       if (!allSubmissionsMap[sub.student_id]) {
         allSubmissionsMap[sub.student_id] = [];
@@ -398,7 +398,7 @@ export const getAssessmentReview = async (req, res) => {
       const student = enrollment.users;
       const bestSubmission = submissionMap[student.id];
       const allAttempts = allSubmissionsMap[student.id] || [];
-      
+
       let studentAnswers = null;
       let answerAnalysis = null;
       let status = 'not_submitted';
@@ -419,11 +419,11 @@ export const getAssessmentReview = async (req, res) => {
         // Parse quiz answers if available
         if (bestSubmission.quiz_data && assignment.assignment_type === 'quiz') {
           try {
-            const quizData = typeof bestSubmission.quiz_data === 'string' ? 
+            const quizData = typeof bestSubmission.quiz_data === 'string' ?
               JSON.parse(bestSubmission.quiz_data) : bestSubmission.quiz_data;
-            
+
             studentAnswers = quizData.answers || quizData;
-            
+
             // Analyze answers against correct answers
             answerAnalysis = {};
             let correctCount = 0;
@@ -431,6 +431,7 @@ export const getAssessmentReview = async (req, res) => {
             let totalPointsEarned = 0;
             let totalPossiblePoints = 0;
 
+            // Fix the answer analysis logic to handle essay questions properly
             questions.forEach(question => {
               const studentAnswer = studentAnswers[question.id];
               totalPossiblePoints += question.points;
@@ -443,13 +444,13 @@ export const getAssessmentReview = async (req, res) => {
                 if (question.questionType === 'multiple_choice' || question.questionType === 'true_false') {
                   // Handle multiple choice and true/false
                   const correctAnswerId = correctAnswersMap[question.id];
-                  
+
                   if (studentAnswer.answerId) {
                     isCorrect = studentAnswer.answerId === correctAnswerId;
-                    
+
                     const selectedAnswer = question.answers.find(a => a.id === studentAnswer.answerId);
                     const correctAnswer = question.answers.find(a => a.isCorrect);
-                    
+
                     studentAnswerText = selectedAnswer?.answerText || 'Answer not found';
                     correctAnswerText = correctAnswer?.answerText || 'No correct answer';
                   }
@@ -457,10 +458,10 @@ export const getAssessmentReview = async (req, res) => {
                   // Handle short answer questions
                   if (studentAnswer.textAnswer) {
                     studentAnswerText = studentAnswer.textAnswer;
-                    
+
                     // Get acceptable answers for this question
                     const acceptableAnswers = question.shortAnswerOptions || [];
-                    
+
                     if (acceptableAnswers.length > 0) {
                       isCorrect = gradeShortAnswer(
                         studentAnswer.textAnswer,
@@ -468,12 +469,21 @@ export const getAssessmentReview = async (req, res) => {
                         question.shortAnswerMatchType,
                         question.shortAnswerCaseSensitive
                       );
-                      
+
                       // Show all acceptable answers
                       correctAnswerText = acceptableAnswers
                         .map(option => option.answer_text)
                         .join(', ');
                     }
+                  }
+                } else if (question.questionType === 'essay') {
+                  // Handle essay questions - ADD THIS SECTION
+                  if (studentAnswer.textAnswer) {
+                    studentAnswerText = studentAnswer.textAnswer;
+                    correctAnswerText = 'Requires manual grading';
+                    // Essay questions typically require manual grading
+                    // Don't automatically mark as correct or assign points
+                    isCorrect = false; // Will be determined by manual grading
                   }
                 }
 
@@ -483,7 +493,7 @@ export const getAssessmentReview = async (req, res) => {
                   totalPointsEarned += question.points;
                 }
               }
-              
+
               answerAnalysis[question.id] = {
                 questionNumber: question.questionNumber,
                 questionText: question.questionText,
@@ -496,7 +506,6 @@ export const getAssessmentReview = async (req, res) => {
                 feedback: null
               };
             });
-
             // Always use the recalculated points from analysis for quiz submissions
             // This ensures we use the correct auto-graded score
             earnedPoints = totalPointsEarned;
@@ -514,7 +523,7 @@ export const getAssessmentReview = async (req, res) => {
         if (earnedPoints !== null && earnedPoints !== undefined) {
           totalScore += earnedPoints;
           scoredSubmissions++;
-          
+
           // Calculate percentage based on actual earned points, not stored score
           if (!percentage && assignment.max_points > 0) {
             percentage = Math.round((earnedPoints / assignment.max_points) * 100);
@@ -561,7 +570,7 @@ export const getAssessmentReview = async (req, res) => {
           attemptNumber: attempt.attempt_number,
           status: attempt.status,
           score: attempt.score,
-          percentage: attempt.score && assignment.max_points > 0 ? 
+          percentage: attempt.score && assignment.max_points > 0 ?
             Math.round((attempt.score / assignment.max_points) * 100) : null,
           submittedAt: attempt.submitted_at,
           gradedAt: attempt.graded_at,
@@ -575,13 +584,13 @@ export const getAssessmentReview = async (req, res) => {
     // 7. Calculate overall statistics
     const totalStudents = enrollments.length;
     const notSubmittedCount = totalStudents - submittedCount - gradedCount;
-    const completionRate = totalStudents > 0 ? 
+    const completionRate = totalStudents > 0 ?
       Math.round(((submittedCount + gradedCount) / totalStudents) * 100) : 0;
-    
-    const averageScore = scoredSubmissions > 0 ? 
+
+    const averageScore = scoredSubmissions > 0 ?
       Math.round(totalScore / scoredSubmissions) : 0;
-    
-    const averagePercentage = assignment.max_points > 0 && scoredSubmissions > 0 ? 
+
+    const averagePercentage = assignment.max_points > 0 && scoredSubmissions > 0 ?
       Math.round((totalScore / scoredSubmissions / assignment.max_points) * 100) : 0;
 
     // Grade distribution

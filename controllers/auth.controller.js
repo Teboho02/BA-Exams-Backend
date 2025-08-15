@@ -102,7 +102,6 @@ export const register = async (req, res) => {
   }
 };
 
-// Login user
 export const login = async (req, res) => {
   try {
     // Check validation errors
@@ -138,6 +137,7 @@ export const login = async (req, res) => {
     // Generate tokens
     const { accessToken, refreshToken } = generateTokens(userData.id);
 
+    // Set cookies (optional - for additional security)
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -151,9 +151,12 @@ export const login = async (req, res) => {
       maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
     });
 
-    res.json(createSuccessResponse({
-      user: sanitizeUser(userData),
-    }, 'Login successful'));
+    // Send tokens in response body for frontend to use
+res.json(createSuccessResponse({
+  user: sanitizeUser(userData),
+  accessToken,        // Add this line
+  refreshToken       // Add this line  
+}, 'Login successful'));xd
 
   } catch (error) {
     console.error('Login error:', error);

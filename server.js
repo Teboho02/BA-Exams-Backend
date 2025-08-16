@@ -1,10 +1,16 @@
-// server.js (Step 3: Add all routes)
+// server.js (Step 3: Add all routes + serve frontend)
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Get __dirname equivalent for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
@@ -15,14 +21,42 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 console.log('🔒 Adding security middleware...');
-app.use(helmet());
-const allowedOrigins = ['http://localhost:5173','https://edu-livid.vercel.app'];
+// Modified helmet configuration for serving frontend assets
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+    },
+  },
+}));
 
+const allowedOrigins = [
+  'http://localhost:5173', // Vite dev server
+  'https://edu-livid.vercel.app', // Production frontend
+  `http://localhost:${PORT}`, // Same server
+  `http://localhost:3000` // Default fallback
+];
+
+// For serving frontend from same server, we can be more permissive with CORS
 app.use(cors({
   origin: function (origin, callback) {
+    // Allow same-origin requests (when frontend is served from same server)
+    // Allow requests with no origin (like mobile apps, Postman, etc.)
+    // Allow specific external origins
+    const allowedOrigins = [
+      'http://localhost:5173', // Vite dev server
+      'https://edu-livid.vercel.app', // Production frontend
+      `http://localhost:${PORT}`, // Same server
+      `http://localhost:3000` // Default fallback
+    ];
+    
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
+      console.log(`❌ CORS blocked request from origin: ${origin}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -30,7 +64,6 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
-
 
 console.log('📝 Adding parsing middleware...');
 app.use(express.json({ limit: '10mb' }));
@@ -68,7 +101,6 @@ const routes = [
   { path: '/api/quiz', file: './routes/quiz.routes.js', name: 'Quiz' },
   { path: '/api/teacher-review', file: './routes/teacherReview.routes.js', name: 'Teacher Review' } ,
   { path: '/api/grades', file: './routes/grade.routes.js', name: 'Grades' },
-  
 ];
 
 for (const route of routes) {
@@ -98,19 +130,41 @@ app.get('/api/health', (req, res) => {
     }
   });
 });
+
+// Serve static files from the dist directory
+console.log('🌐 Setting up frontend serving...');
+const distPath = path.join(__dirname, 'dist');
+console.log(`📁 Serving static files from: ${distPath}`);
+app.use(express.static(distPath));
+
+// Handle client-side routing (SPA fallback)
+app.get('*', (req, res) => {
+  // Don't serve index.html for API routes
+  if (req.path.startsWith('/api')) {
+    return res.status(404).json({
+      success: false,
+      message: 'API endpoint not found'
+    });
+  }
+  
+  // Serve index.html for all non-API routes (SPA routing)
+  res.sendFile(path.join(distPath, 'index.html'), (err) => {
+    if (err) {
+      console.error('Error serving index.html:', err);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to serve application'
+      });
+    }
+  });
+});
+
 // Add this after mounting your routes to see what's registered
 console.log('Registered routes:');
 app._router.stack.forEach(function(r){
   if (r.route && r.route.path){
     console.log(`${Object.keys(r.route.methods).join(', ').toUpperCase()} ${r.route.path}`);
   }
-});
-// 404 handler for API routes
-app.use('/api/*', (req, res) => {
-  res.status(404).json({
-    success: false,
-    message: 'API endpoint not found'
-  });
 });
 
 // Global error handler
@@ -147,11 +201,13 @@ const server = app.listen(PORT, (err) => {
   }
   console.log(`✅ Server running successfully on port ${PORT}`);
   console.log(`🔗 API URL: http://localhost:${PORT}/api`);
+  console.log(`🌐 Frontend URL: http://localhost:${PORT}`);
   console.log(`📋 Available endpoints:`);
   console.log(`   🔐 Auth: /api/auth/*`);
   console.log(`   📚 Courses: /api/courses/*`);
   console.log(`   📝 Assignments: /api/assignments/*`);
   console.log(`   ❤️  Health: /api/health`);
+  console.log(`   🏠 Frontend: /* (SPA routing)`);
 });
 
 // Graceful shutdown

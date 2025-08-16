@@ -266,6 +266,13 @@ export const getEnrolledCourses = async (req, res) => {
 };
 
 
+
+
+
+
+
+
+
 // quiz.controller.js
 
 // Enhanced version of getFullStudentAssessmentData
@@ -1986,6 +1993,252 @@ const getPerformanceLevel = (percentage) => {
 
 
 
+/**
+ * Save or update grade for a specific question in a student's submission
+ * @route PUT /api/quiz/submissions/:submissionId/questions/:questionId/grade
+ * @access Private (Teacher, Admin)
+ */export const saveQuestionGrade = async (req, res) => {
+  try {
+    // Check for validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const { submissionId, questionId } = req.params;
+    const { points } = req.body;
+    const teacherId = req.user.id;
+
+    // First, verify the submission exists and get current data
+    const { data: submission, error: submissionError } = await supabase
+      .from('assignment_submissions')
+      .select(`
+        *,
+        assignments!inner (
+          id,
+          title,
+          course_id,
+          courses!inner (
+            id,
+            title,
+            instructor_id
+          )
+        )
+      `)
+      .eq('id', submissionId)
+      .single();
+
+    if (submissionError || !submission) {
+      return res.status(404).json({
+        success: false,
+        message: 'Submission not found'
+      });
+    }
+
+    // Get teaching assignments separately to check permissions
+    const { data: teachingAssignments } = await supabase
+      .from('teaching_assignments')
+      .select('teacher_id')
+      .eq('course_id', submission.assignments.course_id)
+      .eq('teacher_id', teacherId);
+
+    if (submissionError || !submission) {
+      return res.status(404).json({
+        success: false,
+        message: 'Submission not found'
+      });
+    }
+
+    // Verify the teacher has permission to grade this submission
+    const hasPermission = 
+      submission.assignments.courses.instructor_id === teacherId ||
+      (teachingAssignments && teachingAssignments.length > 0) ||
+      req.user.role === 'admin';
+
+    if (!hasPermission) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to grade this submission'
+      });
+    }
+
+    // Verify the question exists and belongs to this assignment
+    const { data: question, error: questionError } = await supabase
+      .from('quiz_questions')
+      .select('id, points, question_type')
+      .eq('id', questionId)
+      .eq('assignment_id', submission.assignment_id)
+      .single();
+
+    if (questionError || !question) {
+      return res.status(404).json({
+        success: false,
+        message: 'Question not found or does not belong to this assignment'
+      });
+    }
+
+    // Validate points don't exceed maximum for this question
+    if (points > question.points) {
+      return res.status(400).json({
+        success: false,
+        message: `Points awarded (${points}) cannot exceed maximum points for this question (${question.points})`
+      });
+    }
+
+    // Parse the quiz_data JSON string
+    let currentQuizData;
+    try {
+      currentQuizData = submission.quiz_data ? JSON.parse(submission.quiz_data) : {};
+    } catch (parseError) {
+      console.error('Error parsing quiz_data:', parseError);
+      currentQuizData = {};
+    }
+
+    // Get current answers and detailedResults or initialize if null
+    const answers = currentQuizData.answers || {};
+    const detailedResults = currentQuizData.detailedResults || {};
+
+    // Update the specific question's grade in answers
+    const updatedAnswers = {
+      ...answers,
+      [questionId]: {
+        ...answers[questionId],
+        pointsEarned: points,
+        isGraded: true,
+        gradedAt: new Date().toISOString(),
+        gradedBy: teacherId
+      }
+    };
+
+    // Update the detailedResults for this question
+    const updatedDetailedResults = {
+      ...detailedResults,
+      [questionId]: {
+        ...detailedResults[questionId],
+        points: points,
+        requiresManualGrading: false,
+        isGraded: true,
+        gradedAt: new Date().toISOString(),
+        gradedBy: teacherId
+      }
+    };
+
+    // Calculate new total score from detailedResults
+    let totalScore = 0;
+    
+    // Get all questions for this assignment to calculate total
+    const { data: allQuestions } = await supabase
+      .from('quiz_questions')
+      .select('id, points, question_type')
+      .eq('assignment_id', submission.assignment_id)
+      .order('question_number');
+
+    // Calculate total score from all graded questions
+    if (allQuestions) {
+      totalScore = allQuestions.reduce((sum, q) => {
+        const result = updatedDetailedResults[q.id];
+        if (result && result.points !== undefined) {
+          return sum + (result.points || 0);
+        }
+        return sum;
+      }, 0);
+    }
+
+    // Check if all questions are now graded
+    const allGraded = allQuestions?.every(q => {
+      const result = updatedDetailedResults[q.id];
+      return result && (!result.requiresManualGrading || result.isGraded);
+    });
+
+    // Update the quiz data with new structure
+    const updatedQuizData = {
+      ...currentQuizData,
+      answers: updatedAnswers,
+      detailedResults: updatedDetailedResults,
+      autoGradedScore: currentQuizData.autoGradedScore || 0,
+      totalPossiblePoints: currentQuizData.totalPossiblePoints || question.points,
+      lastGraded: new Date().toISOString(),
+      totalScore: totalScore
+    };
+
+    const updateData = {
+      quiz_data: JSON.stringify(updatedQuizData), // Convert back to JSON string
+      score: totalScore,
+      ...(allGraded && { 
+        status: 'graded',
+        graded_at: new Date().toISOString(),
+        graded_by: teacherId
+      })
+    };
+
+    const { data: updatedSubmission, error: updateError } = await supabase
+      .from('assignment_submissions')
+      .update(updateData)
+      .eq('id', submissionId)
+      .select(`
+        *,
+        students:student_id!inner (
+          id,
+          first_name,
+          last_name,
+          email
+        ),
+        assignments:assignment_id!inner (
+          id,
+          title,
+          max_points
+        )
+      `)
+      .single();
+
+    if (updateError) {
+      console.error('Error updating submission:', updateError);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to save grade',
+        error: updateError.message
+      });
+    }
+
+    // Return success response with updated data
+    res.json({
+      success: true,
+      message: 'Grade saved successfully',
+      data: {
+        submissionId: updatedSubmission.id,
+        questionId: questionId,
+        pointsAwarded: points,
+        maxPoints: question.points,
+        totalScore: totalScore,
+        maxTotalPoints: submission.assignments.max_points,
+        isFullyGraded: allGraded,
+        gradedAt: new Date().toISOString(),
+        student: {
+          id: updatedSubmission.students.id,
+          name: `${updatedSubmission.students.first_name || ''} ${updatedSubmission.students.last_name || ''}`.trim() || updatedSubmission.students.email,
+          email: updatedSubmission.students.email
+        },
+        assignment: {
+          id: updatedSubmission.assignments.id,
+          title: updatedSubmission.assignments.title
+        },
+        updatedQuizData: updatedQuizData // Include for debugging/verification
+      }
+    });
+
+  } catch (error) {
+    console.error('Error in saveQuestionGrade:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+};
 
 export default {
   getEnrolledCourses,
@@ -1993,8 +2246,9 @@ export default {
   getQuizDetails,
   getQuizAttempts,
   getFullStudentAssessmentData,
-  getStudentAssessmentData,  // Add this line
+  getStudentAssessmentData,  
   getFullTeacherAssessmentData,
-  getTeacherAssessmentData
+  getTeacherAssessmentData,
+  saveQuestionGrade
 };
 

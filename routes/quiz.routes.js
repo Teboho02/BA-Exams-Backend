@@ -10,6 +10,7 @@ import {
   getFullStudentAssessmentData,
   getStudentAssessmentData,
   getTeacherAssessmentData,
+  saveQuestionGrade
 } from '../controllers/quiz.controller.js';
 import { authenticateToken, requireRole  } from '../middleware/auth.middleware.js';
 
@@ -125,6 +126,8 @@ router.get('/full',
 );
 
 
+//update long assignment marks
+
 
 /**
  * @route   GET /api/quiz/assessment/:assessmentId
@@ -137,6 +140,23 @@ router.get('/assessment/:assessmentId',
   getTeacherAssessmentData
 );
 
+/**
+ * @route   PUT /api/quiz/submissions/:submissionId/questions/:questionId/grade
+ * @desc    Save or update grade for a specific question in a student's submission
+ * @access  Private (Teacher, Admin)
+ * @param   submissionId - UUID of the assignment submission
+ * @param   questionId - UUID of the question being graded
+ * @body    points - Number of points awarded (required)
+ * @returns Updated submission data with new grade
+ * @example
+ * PUT /api/quiz/submissions/123e4567-e89b-12d3-a456-426614174000/questions/987fcdeb-51a2-43d1-9f12-123456789abc/grade
+ * Body: { "points": 8.5 }
+ */
+router.put('/submissions/:submissionId/questions/:questionId/grade',
+  authenticateToken,
+  requireRole(['teacher', 'admin']),
+  saveQuestionGrade
+);
 
 
 export default router;

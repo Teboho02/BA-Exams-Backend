@@ -476,14 +476,36 @@ export const getAssessmentReview = async (req, res) => {
                         .join(', ');
                     }
                   }
+
+                  // Replace the essay question handling section (around lines 180-190) with this:
+
                 } else if (question.questionType === 'essay') {
-                  // Handle essay questions - ADD THIS SECTION
+                  // Handle essay questions
                   if (studentAnswer.textAnswer) {
                     studentAnswerText = studentAnswer.textAnswer;
                     correctAnswerText = 'Requires manual grading';
-                    // Essay questions typically require manual grading
-                    // Don't automatically mark as correct or assign points
-                    isCorrect = false; // Will be determined by manual grading
+
+                    // Check if this essay has been manually graded
+                    // Look for saved points in the quiz_data structure
+                    if (studentAnswer.pointsEarned !== undefined && studentAnswer.pointsEarned !== null) {
+                      // Points were saved directly in the answer object
+                      pointsEarned = studentAnswer.pointsEarned;
+                      isCorrect = pointsEarned > 0;
+                      totalPointsEarned += pointsEarned;
+                    } else if (quizData.detailedResults && quizData.detailedResults[question.id]) {
+                      // Points might be saved in detailedResults
+                      const detailedResult = quizData.detailedResults[question.id];
+                      if (detailedResult.points !== undefined && detailedResult.points !== null) {
+                        pointsEarned = detailedResult.points;
+                        isCorrect = pointsEarned > 0;
+                        totalPointsEarned += pointsEarned;
+                      }
+                    }
+
+                    // Mark as graded if points have been assigned or if explicitly marked as graded
+                    const isGraded = studentAnswer.isGraded ||
+                      (quizData.detailedResults && quizData.detailedResults[question.id] && quizData.detailedResults[question.id].isGraded) ||
+                      (pointsEarned !== undefined && pointsEarned !== null);
                   }
                 }
 
@@ -494,6 +516,8 @@ export const getAssessmentReview = async (req, res) => {
                 }
               }
 
+              // Replace the answerAnalysis assignment (around line 200-210) with this:
+
               answerAnalysis[question.id] = {
                 questionNumber: question.questionNumber,
                 questionText: question.questionText,
@@ -503,7 +527,13 @@ export const getAssessmentReview = async (req, res) => {
                 correctAnswerText: correctAnswerText,
                 isCorrect: isCorrect,
                 pointsEarned: pointsEarned,
-                feedback: null
+                feedback: studentAnswer?.feedback || null,
+                // Add grading information for essay questions
+                isGraded: question.questionType === 'essay' ? (
+                  studentAnswer?.isGraded ||
+                  (quizData.detailedResults && quizData.detailedResults[question.id] && quizData.detailedResults[question.id].isGraded) ||
+                  (pointsEarned !== undefined && pointsEarned !== null)
+                ) : true // Non-essay questions are considered auto-graded
               };
             });
             // Always use the recalculated points from analysis for quiz submissions

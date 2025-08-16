@@ -37,6 +37,7 @@ const allowedOrigins = [
   'http://localhost:5173', // Vite dev server
   'https://edu-livid.vercel.app', // Production frontend
   `http://localhost:${PORT}`, // Same server
+  'https://edu-platform-backend-uuzw.onrender.com', // Render production backend
   `http://localhost:3000` // Default fallback
 ];
 
@@ -49,6 +50,7 @@ app.use(cors({
     const allowedOrigins = [
       'http://localhost:5173', // Vite dev server
       'https://edu-livid.vercel.app', // Production frontend
+      'https://edu-platform-backend-uuzw.onrender.com', // Render production backend
       `http://localhost:${PORT}`, // Same server
       `http://localhost:3000` // Default fallback
     ];

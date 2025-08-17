@@ -1706,7 +1706,8 @@ export const deleteAssignment = async (req, res) => {
 export const toggleAssignmentPublish = async (req, res) => {
   try {
     const { assignmentId } = req.params;
-    const { published } = req.body;
+  //  const { published } = req.body;
+  const published = true; 
     const userId = req.user.id;
 
     // Get assignment and verify ownership
@@ -1732,7 +1733,7 @@ export const toggleAssignmentPublish = async (req, res) => {
     const { data: updatedAssignment, error: updateError } = await supabase
       .from('assignments')
       .update({
-        is_published: published,
+        is_published: true,
         updated_at: new Date().toISOString()
       })
       .eq('id', assignmentId)

@@ -51,8 +51,8 @@ const courseValidation = [
   
   body('maxStudents')
     .optional()
-    .isInt({ min: 1, max: 500 })
-    .withMessage('Max students must be between 1 and 500'),
+    .isInt({ min: 1, max: 1500 })
+    .withMessage('Max students must be between 1 and 1500'),
   
   body('credits')
     .optional()

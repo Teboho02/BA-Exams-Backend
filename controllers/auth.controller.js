@@ -230,19 +230,19 @@ export const getProfile = async (req, res) => {
     const userId = req.user.id;
 
     // Get updated user data
-    const { data: userData, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', userId)
-      .single();
+      const { data: userData, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single();
 
-    if (error || !userData) {
-      return res.status(404).json(createErrorResponse('User profile not found'));
-    }
+      if (error || !userData) {
+        return res.status(404).json(createErrorResponse('User profile not found'));
+      }
 
-    res.json(createSuccessResponse({
-      user: sanitizeUser(userData)
-    }));
+      res.json(createSuccessResponse({
+        user: sanitizeUser(userData)
+      }));
 
   } catch (error) {
     console.error('Get profile error:', error);

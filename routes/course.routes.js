@@ -12,6 +12,10 @@ import {
   getUserEnrolledCourses,
   getUserCourses,
   enrollStudentByEmail,
+  requestCourseRegistration,
+  getRegistrationRequests,
+  processRegistrationRequest,
+  getMyRegistrationRequests,
   handleValidationErrors
 } from '../controllers/course.controller.js';
 import { authenticateUser, requireRole } from '../middleware/auth.middleware.js';
@@ -132,6 +136,36 @@ const moduleValidation = [
     .withMessage('isPublished must be a boolean')
 ];
 
+const registrationRequestValidation = [
+  body('courseCode')
+    .trim()
+    .notEmpty()
+    .withMessage('Course code is required')
+    .isLength({ max: 50 })
+    .withMessage('Course code must be less than 50 characters')
+    .matches(/^[A-Z0-9-]+$/)
+    .withMessage('Course code must contain only uppercase letters, numbers, and hyphens')
+];
+
+const processRegistrationValidation = [
+  body('status')
+    .isIn(['approved', 'rejected'])
+    .withMessage('Status must be either approved or rejected'),
+  
+  body('notes')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Notes must be less than 500 characters'),
+  
+  body('rejectionReason')
+    .if(body('status').equals('rejected'))
+    .optional()
+    .trim()
+    .isLength({ max: 255 })
+    .withMessage('Rejection reason must be less than 255 characters')
+];
+
 const queryValidation = [
   query('subject')
     .optional()
@@ -164,8 +198,100 @@ const paramValidation = [
 // Apply authentication to all routes
 router.use(authenticateUser);
 
-// Routes
+// IMPORTANT: Put specific routes BEFORE parameterized routes
+// Registration-related routes (must come first)
+/**
+ * @route   POST /api/courses/register
+ * @desc    Request to register for a course by course code
+ * @access  Private (Students only)
+ */
+router.post(
+  '/register',
+  requireRole(['student']),
+  registrationRequestValidation,
+  handleValidationErrors,
+  requestCourseRegistration
+);
 
+/**
+ * @route   GET /api/courses/registration-requests
+ * @desc    Get registration requests for courses taught by the current user
+ * @access  Private (Teachers/Admins only)
+ */
+router.get(
+  '/registration-requests',
+  requireRole(['teacher', 'admin']),
+  getRegistrationRequests
+);
+
+/**
+ * @route   PUT /api/courses/registration-requests/:requestId
+ * @desc    Approve or reject a registration request
+ * @access  Private (Teachers/Admins only)
+ */
+router.put(
+  '/registration-requests/:requestId',
+  requireRole(['teacher', 'admin']),
+  param('requestId').isUUID().withMessage('Request ID must be a valid UUID'),
+  processRegistrationValidation,
+  handleValidationErrors,
+  processRegistrationRequest
+);
+
+/**
+ * @route   GET /api/courses/my-requests
+ * @desc    Get current user's course registration requests
+ * @access  Private (Students only)
+ */
+router.get(
+  '/my-requests',
+  requireRole(['student']),
+  getMyRegistrationRequests
+);
+
+/**
+ * @route   GET /api/courses/user/enrollments
+ * @desc    Get all courses a user is enrolled in with enrollment details
+ * @access  Private (Students only)
+ * @query   status, subject
+ */
+router.get('/user/enrollments', 
+  requireRole(['student']), 
+  query('status')
+    .optional()
+    .isIn(['active', 'dropped', 'completed', 'suspended'])
+    .withMessage('Status must be one of: active, dropped, completed, suspended'),
+  query('subject')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Subject filter must be less than 100 characters'),
+  handleValidationErrors,
+  getUserEnrolledCourses
+);
+
+/**
+ * @route   GET /api/courses/user/courses  
+ * @desc    Get all courses a user is enrolled in (simplified version)
+ * @access  Private (Students only)
+ * @query   status, subject
+ */
+router.get('/user/courses',
+  requireRole(['student']),
+  query('status')
+    .optional()
+    .isIn(['active', 'dropped', 'completed', 'suspended'])
+    .withMessage('Status must be one of: active, dropped, completed, suspended'),
+  query('subject')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Subject filter must be less than 100 characters'),
+  handleValidationErrors,
+  getUserCourses
+);
+
+// Main course routes
 /**
  * @route   POST /api/courses
  * @desc    Create a new course
@@ -192,6 +318,7 @@ router.get(
   getCourses
 );
 
+// Parameterized routes (must come after specific routes)
 /**
  * @route   GET /api/courses/:id
  * @desc    Get a specific course by ID
@@ -255,7 +382,6 @@ router.delete(
   unenrollStudent
 ); 
 
-
 /**
  * @route   POST /api/courses/:id/enroll/email
  * @desc    Enroll a student in a course by email
@@ -308,9 +434,6 @@ router.get(
     }
   }
 );
-
-
-
 
 /**
  * @route   PUT /api/courses/:id/students/:studentId/grade
@@ -370,65 +493,6 @@ router.post(
   addModule
 );
 
-// Additional useful routes you might want to add:
-
-/**
- * @route   GET /api/courses/:id/students
- * @desc    Get all students enrolled in a course
- * @access  Private (Course instructor or admin only)
- */
-router.get(
-  '/:id/students',
-  requireRole(['teacher', 'admin']),
-  paramValidation,
-  handleValidationErrors,
-  async (req, res) => {
-    // This would be implemented in your controller
-    res.status(501).json({ message: 'Not implemented yet' });
-  }
-);
-
-/**
- * @route   GET /api/courses/user/enrollments
- * @desc    Get all courses a user is enrolled in with enrollment details
- * @access  Private (Students only)
- * @query   status, subject
- */
-router.get('/user/enrollments', 
-  requireRole(['student']), 
-  query('status')
-    .optional()
-    .isIn(['active', 'dropped', 'completed', 'suspended'])
-    .withMessage('Status must be one of: active, dropped, completed, suspended'),
-  query('subject')
-    .optional()
-    .trim()
-    .isLength({ max: 100 })
-    .withMessage('Subject filter must be less than 100 characters'),
-  handleValidationErrors,
-  getUserEnrolledCourses
-);
-
-/**
- * @route   GET /api/courses/user/courses  
- * @desc    Get all courses a user is enrolled in (simplified version)
- * @access  Private (Students only)
- * @query   status, subject
- */
-router.get('/user/courses',
-  requireRole(['student']),
-  query('status')
-    .optional()
-    .isIn(['active', 'dropped', 'completed', 'suspended'])
-    .withMessage('Status must be one of: active, dropped, completed, suspended'),
-  query('subject')
-    .optional()
-    .trim()
-    .isLength({ max: 100 })
-    .withMessage('Subject filter must be less than 100 characters'),
-  handleValidationErrors,
-  getUserCourses
-);
 /**
  * @route   GET /api/courses/:id/modules
  * @desc    Get all modules for a course

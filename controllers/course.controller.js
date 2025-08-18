@@ -270,7 +270,6 @@ const getCourses = async (req, res) => {
 
 
 
-// Add this debugging version to your course.controller.js
 
 const getCourse = async (req, res) => {
   try {
@@ -716,6 +715,434 @@ const getUserCourses = async (req, res) => {
 
 
 
+const findCourseByCode = async (courseCode) => {
+  const { data, error } = await supabase
+    .from('courses')
+    .select(`
+      id,
+      title,
+      code,
+      subject,
+      instructor_id,
+      is_active,
+      max_students,
+      current_enrollment,
+      teacher:users!instructor_id(id, first_name, last_name, email)
+    `)
+    .eq('code', courseCode.toUpperCase())
+    .eq('is_active', true)
+    .single();
+  
+  if (error && error.code !== 'PGRST116') throw error;
+  return data;
+};
+
+const checkExistingRegistrationRequest = async (courseId, studentId) => {
+  const { data, error } = await supabase
+    .from('course_registration_requests')
+    .select('id, status')
+    .eq('course_id', courseId)
+    .eq('student_id', studentId)
+    .eq('status', 'pending')
+    .single();
+  
+  if (error && error.code !== 'PGRST116') throw error;
+  return data;
+};
+
+
+
+const createRegistrationRequest = async (courseId, studentId, courseCode) => {
+  const { data, error } = await supabase
+    .from('course_registration_requests')
+    .insert([{
+      course_id: courseId,
+      student_id: studentId,
+      course_code: courseCode.toUpperCase(),
+      status: 'pending'
+    }])
+    .select(`
+      id,
+      course_code,
+      status,
+      requested_at,
+      course:courses(id, title, code, subject)
+    `)
+    .single();
+  
+  if (error) throw error;
+  return data;
+};
+
+
+const updateRegistrationRequest = async (requestId, updates, processedBy) => {
+  const updateData = {
+    status: updates.status,
+    processed_at: new Date().toISOString(),
+    processed_by: processedBy,
+    updated_at: new Date().toISOString()
+  };
+
+  if (updates.notes) updateData.notes = updates.notes;
+  if (updates.rejectionReason) updateData.rejection_reason = updates.rejectionReason;
+
+  const { data, error } = await supabase
+    .from('course_registration_requests')
+    .update(updateData)
+    .eq('id', requestId)
+    .select(`
+      id,
+      status,
+      processed_at,
+      notes,
+      rejection_reason,
+      course:courses(id, title, code),
+      student:users!student_id(id, first_name, last_name, email)
+    `)
+    .single();
+  
+  if (error) throw error;
+  return data;
+};
+
+
+
+// Controller functions
+const requestCourseRegistration = async (req, res) => {
+  try {
+    const { courseCode } = req.body;
+    const studentId = req.user.id;
+
+    // Find course by code
+    const course = await findCourseByCode(courseCode);
+    
+    if (!course) {
+      return res.status(404).json(createErrorResponse(
+        `Course with code "${courseCode}" not found. Please check the course code and try again.`
+      ));
+    }
+
+    // Check if course is at capacity
+    if (course.current_enrollment >= course.max_students) {
+      return res.status(400).json(createErrorResponse(
+        `Course "${course.title}" (${course.code}) is currently at full capacity. Please contact the instructor for more information.`
+      ));
+    }
+
+    // Check if student is already enrolled
+    const existingEnrollment = await checkExistingEnrollment(course.id, studentId);
+    if (existingEnrollment) {
+      return res.status(400).json(createErrorResponse(
+        `You are already enrolled in course "${course.title}" (${course.code}).`
+      ));
+    }
+
+    // Check for existing pending request
+    const existingRequest = await checkExistingRegistrationRequest(course.id, studentId);
+    if (existingRequest) {
+      return res.status(400).json(createErrorResponse(
+        `You already have a pending registration request for course "${course.title}" (${course.code}). Please wait for the instructor to process your request.`
+      ));
+    }
+
+    // Create registration request
+    const registrationRequest = await createRegistrationRequest(course.id, studentId, courseCode);
+
+    res.status(201).json(createSuccessResponse({
+      registrationRequest: {
+        id: registrationRequest.id,
+        courseCode: registrationRequest.course_code,
+        courseTitle: registrationRequest.course.title,
+        status: registrationRequest.status,
+        requestedAt: registrationRequest.requested_at
+      }
+    }, 'Registration request submitted successfully. You will be notified when the instructor processes your request.'));
+
+  } catch (error) {
+    console.error('Course registration request error:', error);
+    res.status(500).json(createErrorResponse('Failed to submit registration request. Please try again.'));
+  }
+};
+
+
+
+// Replace these functions in your course.controller.js
+
+const getRegistrationRequestsForInstructor = async (instructorId) => {
+  try {
+    // First, get all courses where the user is an instructor
+    const { data: instructorCourses, error: courseError } = await supabase
+      .from('courses')
+      .select('id')
+      .eq('instructor_id', instructorId);
+
+    if (courseError) throw courseError;
+
+    // Also get courses from teaching_assignments
+    const { data: teachingAssignments, error: teachingError } = await supabase
+      .from('teaching_assignments')
+      .select('course_id')
+      .eq('teacher_id', instructorId);
+
+    if (teachingError) throw teachingError;
+
+    // Combine course IDs
+    const courseIds = new Set([
+      ...instructorCourses.map(c => c.id),
+      ...teachingAssignments.map(ta => ta.course_id)
+    ]);
+
+    const courseIdsArray = Array.from(courseIds);
+
+    if (courseIdsArray.length === 0) {
+      return []; // No courses, no requests
+    }
+
+    // Now get registration requests for these courses
+    const { data: requests, error: requestsError } = await supabase
+      .from('course_registration_requests')
+      .select(`
+        id,
+        course_code,
+        status,
+        requested_at,
+        processed_at,
+        notes,
+        rejection_reason,
+        course:courses(id, title, code, subject),
+        student:users!student_id(id, first_name, last_name, email)
+      `)
+      .in('course_id', courseIdsArray)
+      .order('requested_at', { ascending: false });
+
+    if (requestsError) throw requestsError;
+
+    return requests || [];
+
+  } catch (error) {
+    console.error('Error in getRegistrationRequestsForInstructor:', error);
+    throw error;
+  }
+};
+
+const getStudentRegistrationRequests = async (studentId) => {
+  const { data, error } = await supabase
+    .from('course_registration_requests')
+    .select(`
+      id,
+      course_code,
+      status,
+      requested_at,
+      processed_at,
+      notes,
+      rejection_reason,
+      course:courses(
+        id, 
+        title, 
+        code, 
+        subject,
+        teacher:users!instructor_id(first_name, last_name)
+      )
+    `)
+    .eq('student_id', studentId)
+    .order('requested_at', { ascending: false });
+  
+  if (error) throw error;
+  return data || [];
+};
+
+const findRegistrationRequestById = async (requestId, instructorId) => {
+  try {
+    // First get the registration request
+    const { data: request, error: requestError } = await supabase
+      .from('course_registration_requests')
+      .select(`
+        id,
+        course_id,
+        student_id,
+        status
+      `)
+      .eq('id', requestId)
+      .single();
+    
+    if (requestError && requestError.code !== 'PGRST116') throw requestError;
+    if (!request) return null;
+
+    // Check if instructor has permission for this course
+    const { data: course, error: courseError } = await supabase
+      .from('courses')
+      .select('id, instructor_id')
+      .eq('id', request.course_id)
+      .single();
+
+    if (courseError && courseError.code !== 'PGRST116') throw courseError;
+
+    // Check if instructor is the course instructor
+    if (course && course.instructor_id === instructorId) {
+      return request;
+    }
+
+    // Check if instructor has teaching assignment
+    const { data: teachingAssignment, error: teachingError } = await supabase
+      .from('teaching_assignments')
+      .select('id')
+      .eq('teacher_id', instructorId)
+      .eq('course_id', request.course_id)
+      .single();
+
+    if (teachingError && teachingError.code !== 'PGRST116') throw teachingError;
+
+    if (teachingAssignment) {
+      return request;
+    }
+
+    return null; // No permission
+  } catch (error) {
+    console.error('Error in findRegistrationRequestById:', error);
+    throw error;
+  }
+};
+
+// Updated controller functions
+const getRegistrationRequests = async (req, res) => {
+  try {
+    const instructorId = req.user.id;
+    console.log('Getting registration requests for instructor:', instructorId);
+    
+    const requests = await getRegistrationRequestsForInstructor(instructorId);
+    console.log('Found requests:', requests.length);
+    
+    const sanitizedRequests = requests.map(request => ({
+      id: request.id,
+      courseCode: request.course_code,
+      courseTitle: request.course?.title || 'Unknown Course',
+      courseSubject: request.course?.subject || 'Unknown Subject',
+      studentName: request.student ? `${request.student.first_name} ${request.student.last_name}` : 'Unknown Student',
+      studentEmail: request.student?.email || 'Unknown Email',
+      status: request.status,
+      requestedAt: request.requested_at,
+      processedAt: request.processed_at,
+      notes: request.notes,
+      rejectionReason: request.rejection_reason
+    }));
+
+    res.json(createSuccessResponse({
+      count: sanitizedRequests.length,
+      requests: sanitizedRequests
+    }));
+
+  } catch (error) {
+    console.error('Get registration requests error:', error);
+    res.status(500).json(createErrorResponse('Failed to fetch registration requests.'));
+  }
+};
+
+const processRegistrationRequest = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const { status, notes, rejectionReason } = req.body;
+    const instructorId = req.user.id;
+
+    console.log('Processing registration request:', { requestId, status, instructorId });
+
+    // Find and validate request
+    const request = await findRegistrationRequestById(requestId, instructorId);
+    
+    if (!request) {
+      return res.status(404).json(createErrorResponse(
+        'Registration request not found or you do not have permission to process it.'
+      ));
+    }
+
+    if (request.status !== 'pending') {
+      return res.status(400).json(createErrorResponse(
+        'This registration request has already been processed.'
+      ));
+    }
+
+    // If approving, enroll the student first
+    if (status === 'approved') {
+      try {
+        console.log('Approving request - enrolling student:', request.student_id, 'in course:', request.course_id);
+        
+        // Check if student is already enrolled (just in case)
+        const existingEnrollment = await checkExistingEnrollment(request.course_id, request.student_id);
+        if (!existingEnrollment) {
+          await enrollStudentInCourse(request.course_id, request.student_id);
+          console.log('Student enrolled successfully');
+        } else {
+          console.log('Student already enrolled');
+        }
+      } catch (enrollmentError) {
+        console.error('Error enrolling student:', enrollmentError);
+        return res.status(500).json(createErrorResponse(
+          'Failed to enroll student. Please try again.'
+        ));
+      }
+    }
+
+    // Update the registration request
+    const updatedRequest = await updateRegistrationRequest(
+      requestId, 
+      { status, notes, rejectionReason }, 
+      instructorId
+    );
+
+    const responseMessage = status === 'approved' 
+      ? `Registration request approved. ${updatedRequest.student.first_name} ${updatedRequest.student.last_name} has been enrolled in ${updatedRequest.course.title}.`
+      : `Registration request rejected.`;
+
+    res.json(createSuccessResponse({
+      request: {
+        id: updatedRequest.id,
+        status: updatedRequest.status,
+        processedAt: updatedRequest.processed_at,
+        notes: updatedRequest.notes,
+        rejectionReason: updatedRequest.rejection_reason,
+        courseTitle: updatedRequest.course.title,
+        studentName: `${updatedRequest.student.first_name} ${updatedRequest.student.last_name}`
+      }
+    }, responseMessage));
+
+  } catch (error) {
+    console.error('Process registration request error:', error);
+    res.status(500).json(createErrorResponse('Failed to process registration request.'));
+  }
+};
+
+const getMyRegistrationRequests = async (req, res) => {
+  try {
+    const studentId = req.user.id;
+    
+    const requests = await getStudentRegistrationRequests(studentId);
+    
+    const sanitizedRequests = requests.map(request => ({
+      id: request.id,
+      courseCode: request.course_code,
+      courseTitle: request.course?.title || 'Unknown Course',
+      courseSubject: request.course?.subject || 'Unknown Subject',
+      instructorName: request.course?.teacher 
+        ? `${request.course.teacher.first_name} ${request.course.teacher.last_name}`
+        : 'Unknown Instructor',
+      status: request.status,
+      requestedAt: request.requested_at,
+      processedAt: request.processed_at,
+      notes: request.notes,
+      rejectionReason: request.rejection_reason
+    }));
+
+    res.json(createSuccessResponse({
+      count: sanitizedRequests.length,
+      requests: sanitizedRequests
+    }));
+
+  } catch (error) {
+    console.error('Get my registration requests error:', error);
+    res.status(500).json(createErrorResponse('Failed to fetch your registration requests.'));
+  }
+};
+
+
 // Export controller functions
 export {
   createCourse,
@@ -728,6 +1155,15 @@ export {
   unenrollStudent,
   addModule,
   getUserEnrolledCourses,  
-  getUserCourses,          
+  getUserCourses,
+  requestCourseRegistration,
+  getRegistrationRequests,
+  processRegistrationRequest,
+  getMyRegistrationRequests,   
+  findCourseByCode,
+  findCourseById,
+  findStudentByEmail,
+  checkExistingEnrollment,
+  createRegistrationRequest,       
   handleValidationErrors
 };

@@ -139,18 +139,32 @@ export const login = async (req, res) => {
     const isProduction = process.env.NODE_ENV === 'production';
 
 
+    // const cookieOptions = {
+    //   httpOnly: true,
+    //   secure: isProduction, // false for localhost, true for production
+    //   sameSite: isProduction ? 'None' : 'Lax', // Lax for localhost, None for cross-origin production
+    //   maxAge: 1 * 24 * 60 * 60 * 1000, // 1 day
+    // };
+
+    // const refreshCookieOptions = {
+    //   httpOnly: true,
+    //   secure: isProduction,
+    //   sameSite: isProduction ? 'None' : 'Lax',
+    //   maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    // };
+
     const cookieOptions = {
       httpOnly: true,
-      secure: isProduction, // false for localhost, true for production
-      sameSite: isProduction ? 'None' : 'Lax', // Lax for localhost, None for cross-origin production
-      maxAge: 1 * 24 * 60 * 60 * 1000, // 1 day
+      secure: isProduction, // Only true in HTTPS production
+      sameSite: 'Lax', // Can use Lax for same-origin
+      maxAge: 1 * 24 * 60 * 60 * 1000,
     };
 
     const refreshCookieOptions = {
       httpOnly: true,
       secure: isProduction,
-      sameSite: isProduction ? 'None' : 'Lax',
-      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+      sameSite: 'Lax', // Much more permissive than 'None'
+      maxAge: 30 * 24 * 60 * 60 * 1000,
     };
 
     res.cookie('accessToken', accessToken, cookieOptions);

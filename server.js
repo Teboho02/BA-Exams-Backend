@@ -7,6 +7,7 @@ import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 
 // Get __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -19,10 +20,7 @@ console.log('🚀 Starting server with all routes...');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-
-
 app.set('trust proxy', true);
-
 
 app.use(helmet({
   contentSecurityPolicy: {
@@ -97,6 +95,12 @@ const authLimiter = rateLimit({
 // app.use('/api/', generalLimiter);
 // app.use('/api/auth', authLimiter);
 
+// Add debugging middleware for requests
+app.use((req, res, next) => {
+  console.log(`📥 Request: ${req.method} ${req.path}`);
+  next();
+});
+
 // Load routes with individual error handling
 const routes = [
   { path: '/api/auth', file: './routes/auth.routes.js', name: 'Auth' },
@@ -132,22 +136,75 @@ app.get('/api/health', (req, res) => {
 console.log('🌐 Setting up frontend serving...');
 const distPath = path.join(__dirname, 'dist');
 console.log(`📁 Serving static files from: ${distPath}`);
-app.use(express.static(distPath));
+
+// Check if dist directory exists
+if (!fs.existsSync(distPath)) {
+  console.error(`❌ Dist directory not found at: ${distPath}`);
+  console.log('💡 Make sure to build your frontend first with: npm run build');
+} else {
+  console.log(`✅ Dist directory found`);
+  try {
+    const files = fs.readdirSync(distPath);
+    console.log(`📋 Files in dist:`, files);
+  } catch (err) {
+    console.error('Error reading dist directory:', err);
+  }
+}
+
+// Serve static files with proper headers
+app.use(express.static(distPath, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.js')) {
+      res.setHeader('Content-Type', 'application/javascript');
+    } else if (filePath.endsWith('.css')) {
+      res.setHeader('Content-Type', 'text/css');
+    }
+    console.log(`📤 Serving static file: ${path.basename(filePath)}`);
+  }
+}));
 
 // Handle client-side routing (SPA fallback)
 app.get('*', (req, res) => {
+  console.log(`🔍 Catch-all handler for: ${req.path}`);
+  
   // Don't serve index.html for API routes
   if (req.path.startsWith('/api')) {
+    console.log(`❌ API route not found: ${req.path}`);
     return res.status(404).json({
       success: false,
       message: 'API endpoint not found'
     });
   }
   
-  // Serve index.html for all non-API routes (SPA routing)
-  res.sendFile(path.join(distPath, 'index.html'), (err) => {
+  // Don't serve index.html for static asset requests
+  const isStaticAsset = req.path.startsWith('/assets/') || 
+                       req.path.match(/\.(js|css|ico|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot|map)$/);
+  
+  if (isStaticAsset) {
+    console.log(`❌ Static asset not found: ${req.path}`);
+    return res.status(404).json({
+      success: false,
+      message: 'Static asset not found',
+      path: req.path
+    });
+  }
+  
+  // Serve index.html for all other routes (SPA routing)
+  console.log(`🏠 Serving index.html for SPA route: ${req.path}`);
+  const indexPath = path.join(distPath, 'index.html');
+  
+  if (!fs.existsSync(indexPath)) {
+    console.error(`❌ index.html not found at: ${indexPath}`);
+    return res.status(500).json({
+      success: false,
+      message: 'Application not built. Please run npm run build first.',
+      path: indexPath
+    });
+  }
+  
+  res.sendFile(indexPath, (err) => {
     if (err) {
-      console.error('Error serving index.html:', err);
+      console.error('❌ Error serving index.html:', err);
       res.status(500).json({
         success: false,
         message: 'Failed to serve application'
@@ -203,6 +260,8 @@ const server = app.listen(PORT, (err) => {
   console.log(`   🔐 Auth: /api/auth/*`);
   console.log(`   📚 Courses: /api/courses/*`);
   console.log(`   📝 Assignments: /api/assignments/*`);
+  console.log(`   ❓ Quiz: /api/quiz/*`);
+  console.log(`   👨‍🏫 Teacher Review: /api/teacher-review/*`);
   console.log(`   ❤️  Health: /api/health`);
   console.log(`   🏠 Frontend: /* (SPA routing)`);
 });

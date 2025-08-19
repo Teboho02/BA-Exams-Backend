@@ -17,8 +17,8 @@ export const authenticateUser = async (req, res, next) => {
     console.log('=== Auth Debug ===');
     console.log('Cookies received:', req.cookies);
     console.log('Origin:', req.get('Origin'));
-    console.log('Referer:', req.get('Referer'));
-    console.log('All headers:', req.headers);
+    // console.log('Referer:', req.get('Referer'));
+    // console.log('All headers:', req.headers);
 
     let token;
 

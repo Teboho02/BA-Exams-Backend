@@ -84,7 +84,7 @@ export const register = async (req, res) => {
 
     // Return user data (the database trigger will create the profile)
     res.status(201).json(createSuccessResponse(
-       'User registered successfully'));
+      'User registered successfully'));
 
   } catch (error) {
     console.error('Registration error:', error);
@@ -136,20 +136,26 @@ export const login = async (req, res) => {
 
     // Generate tokens
     const { accessToken, refreshToken } = generateTokens(userData.id);
+    const isProduction = process.env.NODE_ENV === 'production';
 
-    // Set cookies (must match options in logout)
-    res.cookie('accessToken', accessToken, {
+
+    const cookieOptions = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'None',
-      maxAge: 1 * 24 * 60 * 60 * 1000, // 1 days
-    });
-    res.cookie('refreshToken', refreshToken, {
+      secure: isProduction, // false for localhost, true for production
+      sameSite: isProduction ? 'None' : 'Lax', // Lax for localhost, None for cross-origin production
+      maxAge: 1 * 24 * 60 * 60 * 1000, // 1 day
+    };
+
+    const refreshCookieOptions = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'None',
-      maxAge: 30 * 24 * 60 * 60 * 1000, // 7 days
-    });
+      secure: isProduction,
+      sameSite: isProduction ? 'None' : 'Lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    };
+
+    res.cookie('accessToken', accessToken, cookieOptions);
+    res.cookie('refreshToken', refreshToken, refreshCookieOptions);
+    // Set cookies with secure flags
 
     // Return response (no tokens in body for security, just user info)
     res.json(
@@ -171,20 +177,17 @@ export const login = async (req, res) => {
 // Logout user (with token blacklisting if needed)
 export const logout = async (req, res) => {
   try {
-
-    res.clearCookie('accessToken', {
+    // Cookie configuration for development vs production (same as login)
+    const isProduction = process.env.NODE_ENV === 'production';
+    const cookieOptions = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'None',
+      secure: isProduction, // false for localhost, true for production
+      sameSite: isProduction ? 'None' : 'Lax', // Lax for localhost, None for cross-origin production
       path: '/', // must match login cookie path
-    });
+    };
 
-    res.clearCookie('refreshToken', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'None',
-      path: '/', // must match login cookie path
-    });
+    res.clearCookie('accessToken', cookieOptions);
+    res.clearCookie('refreshToken', cookieOptions);
 
     res.json(createSuccessResponse({}, 'Logout successful'));
   } catch (error) {
@@ -204,7 +207,7 @@ export const refreshToken = async (req, res) => {
 
     // Verify refresh token
     const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET);
-    
+
     if (decoded.type !== 'refresh') {
       return res.status(401).json(createErrorResponse('Invalid refresh token'));
     }
@@ -232,11 +235,11 @@ export const refreshToken = async (req, res) => {
 
   } catch (error) {
     console.error('Refresh token error:', error);
-    
+
     if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
       return res.status(401).json(createErrorResponse('Invalid or expired refresh token'));
     }
-    
+
     res.status(500).json(createErrorResponse('Token refresh failed'));
   }
 };
@@ -247,19 +250,19 @@ export const getProfile = async (req, res) => {
     const userId = req.user.id;
 
     // Get updated user data
-      const { data: userData, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', userId)
-        .single();
+    const { data: userData, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
 
-      if (error || !userData) {
-        return res.status(404).json(createErrorResponse('User profile not found'));
-      }
+    if (error || !userData) {
+      return res.status(404).json(createErrorResponse('User profile not found'));
+    }
 
-      res.json(createSuccessResponse({
-        user: sanitizeUser(userData)
-      }));
+    res.json(createSuccessResponse({
+      user: sanitizeUser(userData)
+    }));
 
   } catch (error) {
     console.error('Get profile error:', error);

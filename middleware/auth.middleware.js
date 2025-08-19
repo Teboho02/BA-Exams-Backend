@@ -12,8 +12,11 @@ const createErrorResponse = (message, statusCode = 401) => ({
 // Main authentication middleware
 export const authenticateUser = async (req, res, next) => {
   try {
-    const authHeader = req.header('Authorization');
-    const token = authHeader?.replace('Bearer ', '');
+
+    let token;
+
+    token = req.cookies.accessToken;
+
     
     if (!token) {
       return res.status(401).json(createErrorResponse('Access token required'));

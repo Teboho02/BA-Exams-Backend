@@ -19,9 +19,8 @@ console.log('🚀 Starting server with all routes...');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
-console.log('🔒 Adding security middleware...');
-// Modified helmet configuration for serving frontend assets
+
+
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -102,7 +101,6 @@ const routes = [
   { path: '/api/assignments', file: './routes/assignment.routes.js', name: 'Assignment' },
   { path: '/api/quiz', file: './routes/quiz.routes.js', name: 'Quiz' },
   { path: '/api/teacher-review', file: './routes/teacherReview.routes.js', name: 'Teacher Review' } ,
-  { path: '/api/grades', file: './routes/grade.routes.js', name: 'Grades' },
 ];
 
 for (const route of routes) {
@@ -121,15 +119,9 @@ for (const route of routes) {
 app.get('/api/health', (req, res) => {
   res.json({
     success: true,
-    message: 'API is healthy',
+    message: 'API is up and running',
     timestamp: new Date().toISOString(),
     version: '1.0.0',
-    routes: {
-      auth: '/api/auth/*',
-      courses: '/api/courses/*',
-      assignments: '/api/assignments/*',
-      health: '/api/health'
-    }
   });
 });
 

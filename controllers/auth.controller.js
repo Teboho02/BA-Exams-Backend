@@ -83,18 +83,8 @@ export const register = async (req, res) => {
     const { accessToken, refreshToken } = generateTokens(authData.user.id);
 
     // Return user data (the database trigger will create the profile)
-    res.status(201).json(createSuccessResponse({
-      user: {
-        id: authData.user.id,
-        email: authData.user.email,
-        firstName: firstName,
-        lastName: lastName,
-        role: role,
-        isActive: true
-      },
-      accessToken,
-      refreshToken
-    }, 'User registered successfully'));
+    res.status(201).json(createSuccessResponse(
+       'User registered successfully'));
 
   } catch (error) {
     console.error('Registration error:', error);
@@ -153,9 +143,7 @@ export const login = async (req, res) => {
 
     // Send tokens in response body for frontend to use
 res.json(createSuccessResponse({
-  user: sanitizeUser(userData),
-  accessToken,        // Add this line
-  refreshToken       // Add this line  
+  user: sanitizeUser(userData),   
 }, 'Login successful'));
 
   } catch (error) {

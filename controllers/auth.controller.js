@@ -92,27 +92,33 @@ export const register = async (req, res) => {
   }
 };
 
+
 export const login = async (req, res) => {
   try {
     // Check validation errors
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json(createErrorResponse('Validation failed', errors.array()));
+      return res
+        .status(400)
+        .json(createErrorResponse('Validation failed', errors.array()));
     }
 
     const { email, password } = req.body;
 
     // Sign in with Supabase Auth
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    });
+    const { data: authData, error: authError } =
+      await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
     if (authError) {
-      return res.status(401).json(createErrorResponse('Invalid email or password'));
+      return res
+        .status(401)
+        .json(createErrorResponse('Invalid email or password'));
     }
 
-    // Get user profile
+    // Get user profile (must be active)
     const { data: userData, error: userError } = await supabase
       .from('users')
       .select('*')
@@ -121,42 +127,65 @@ export const login = async (req, res) => {
       .single();
 
     if (userError || !userData) {
-      return res.status(401).json(createErrorResponse('User account not found or deactivated'));
+      return res
+        .status(401)
+        .json(
+          createErrorResponse('User account not found or deactivated'),
+        );
     }
 
     // Generate tokens
     const { accessToken, refreshToken } = generateTokens(userData.id);
 
-    // Set cookies (optional - for additional security)
+    // Set cookies (must match options in logout)
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'None',
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      maxAge: 1 * 24 * 60 * 60 * 1000, // 1 days
     });
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'None',
-      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 7 days
     });
 
-    // Send tokens in response body for frontend to use
-res.json(createSuccessResponse({
-  user: sanitizeUser(userData),   
-}, 'Login successful'));
-
+    // Return response (no tokens in body for security, just user info)
+    res.json(
+      createSuccessResponse(
+        {
+          user: sanitizeUser(userData),
+        },
+        'Login successful',
+      ),
+    );
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json(createErrorResponse('Login failed'));
   }
 };
 
+
+// Logout user (with token blacklisting if needed)
 // Logout user (with token blacklisting if needed)
 export const logout = async (req, res) => {
   try {
 
-    
+    res.clearCookie('accessToken', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'None',
+      path: '/', // must match login cookie path
+    });
+
+    res.clearCookie('refreshToken', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'None',
+      path: '/', // must match login cookie path
+    });
+
     res.json(createSuccessResponse({}, 'Logout successful'));
   } catch (error) {
     console.error('Logout error:', error);

@@ -10,21 +10,28 @@ const createErrorResponse = (message, statusCode = 401) => ({
 });
 
 // Main authentication middleware
+
 export const authenticateUser = async (req, res, next) => {
   try {
+
+    console.log('=== Auth Debug ===');
+    console.log('Cookies received:', req.cookies);
+    console.log('Origin:', req.get('Origin'));
+    console.log('Referer:', req.get('Referer'));
+    console.log('All headers:', req.headers);
 
     let token;
 
     token = req.cookies.accessToken;
 
-    
+
     if (!token) {
       return res.status(401).json(createErrorResponse('Access token required'));
     }
 
     // Verify JWT token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
+
     // Get user from Supabase
     const { data: user, error } = await supabase
       .from('users')
@@ -43,15 +50,15 @@ export const authenticateUser = async (req, res, next) => {
     next();
   } catch (error) {
     console.error('Authentication error:', error);
-    
+
     if (error.name === 'JsonWebTokenError') {
       return res.status(401).json(createErrorResponse('Invalid token'));
     }
-    
+
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json(createErrorResponse('Token expired'));
     }
-    
+
     res.status(401).json(createErrorResponse('Authentication failed'));
   }
 };
@@ -68,14 +75,14 @@ export const requireRole = (allowedRoles) => {
 
     const userRole = req.user.role;
     const roles = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];
-    
+
     if (!roles.includes(userRole)) {
       return res.status(403).json(createErrorResponse(
         `Access denied. Required role(s): ${roles.join(', ')}. Your role: ${userRole}`,
         403
       ));
     }
-    
+
     next();
   };
 };
@@ -152,13 +159,13 @@ export const checkOwnership = (resourceType = 'resource') => {
       switch (resourceType) {
         case 'course':
           return checkCourseAccess(req, res, next);
-          
+
         case 'profile':
           if (resourceId === user.id) {
             return next();
           }
           break;
-          
+
         default:
           // Generic ownership check - modify based on your needs
           if (resourceId === user.id) {

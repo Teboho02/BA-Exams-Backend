@@ -167,7 +167,7 @@ export const logout = async (req, res) => {
 // Refresh access token
 export const refreshToken = async (req, res) => {
   try {
-    const { refreshToken: token } = req.body;
+    let token = req.cookies.refreshToken;
 
     if (!token) {
       return res.status(401).json(createErrorResponse('Refresh token required'));

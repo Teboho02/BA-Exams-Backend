@@ -240,7 +240,7 @@ router.put(
 
 /**
  * @route   GET /api/courses/my-requests
- * @desc    Get current user's course registration requests
+  * @desc    Get current user's course registration requests
  * @access  Private (Students only)
  */
 router.get(

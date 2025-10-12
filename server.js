@@ -47,8 +47,8 @@ const allowedOrigins = [
   `http://localhost:${PORT}`,
   'https://edu-platform-backend-uuzw.onrender.com',
   `http://localhost:3000`,
-  'https://www.baonlineexaminations.com',  // Add your production domain
-  'https://baonlineexaminations.com'       // Add without www as well
+  'https://www.baonlineexaminations.com',  
+  'https://baonlineexaminations.com'       //
 ];
 
 app.use(cors({
@@ -89,6 +89,8 @@ const generalLimiter = rateLimit({
     message: 'Too many requests from this IP, please try again later.'
   }
 });
+
+app.use(generalLimiter)
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -223,10 +225,10 @@ app.get('/sitemap.xml', (req, res) => {
 });
 
 
-// app.get('/register', (req, res) => {
-//   console.log('📥 /register accessed -> redirecting to /');
-//   res.redirect(302, '/');
-// });
+app.get('/register', (req, res) => {
+  console.log('📥 /register accessed -> redirecting to /');
+  res.redirect(302, '/');
+});
 // FIXED: Handle client-side routing (SPA fallback) - MOVED AFTER static serving
 app.get('*', (req, res) => {
   console.log(`🔍 Catch-all handler for: ${req.path}`);

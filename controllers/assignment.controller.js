@@ -1509,16 +1509,39 @@ export const getAssignment = async (req, res) => {
         .from('quiz_questions')
         .select(`
           *,
-          quiz_question_answers(*)
+          quiz_question_answers(*),
+          quiz_short_answer_options(*)
         `)
         .eq('assignment_id', assignmentId)
         .order('question_number');
 
       if (!questionsError && questionsData) {
-        questions = questionsData.map(q => ({
-          ...sanitizeQuestion(q),
-          answers: q.quiz_question_answers.map(sanitizeAnswer)
-        }));
+        questions = questionsData.map(q => {
+          const sanitizedQuestion = sanitizeQuestion(q);
+          
+          // Handle different question types
+          if (q.question_type === 'short_answer') {
+            // For short answer questions, use quiz_short_answer_options
+            return {
+              ...sanitizedQuestion,
+              answers: q.quiz_short_answer_options.map(option => ({
+                id: option.id,
+                questionId: option.question_id,
+                answerText: option.answer_text,
+                isCaseSensitive: option.is_case_sensitive,
+                isExactMatch: option.is_exact_match,
+                answerOrder: option.answer_order,
+                createdAt: option.created_at
+              }))
+            };
+          } else {
+            // For multiple choice, true/false, etc., use quiz_question_answers
+            return {
+              ...sanitizedQuestion,
+              answers: q.quiz_question_answers.map(sanitizeAnswer)
+            };
+          }
+        });
       }
     }
 
@@ -1655,7 +1678,7 @@ export const getAssignment = async (req, res) => {
     console.error('Get assignment error:', error);
     res.status(500).json(createErrorResponse('Failed to fetch assignment'));
   }
-};// Get single assignment with questions
+};
 
 
 // Delete assignment

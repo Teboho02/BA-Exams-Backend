@@ -12,7 +12,11 @@ import {
   logout,
   refreshToken,
   getProfile,
-  updateProfile
+  updateProfile,
+  googleSignIn,
+  googleCallback,
+  SendResetPasswordLink,
+  resetPassword
 } from '../controllers/auth.controller.js';
 
 const router = express.Router();
@@ -54,11 +58,17 @@ const loginValidation = [
 router.post('/register', registerValidation, register);
 router.post('/login', loginValidation, login);
 router.post('/refresh-token', refreshToken);
+router.post('/google', googleSignIn);
+router.post('/google/callback', googleCallback);
+router.post('/reset-password', SendResetPasswordLink);
+router.post('/resetpassword/:token', resetPassword);
 
 // Protected routes
 router.post('/logout', authenticateUser, logout);
 router.get('/profile', authenticateUser, getProfile);
 router.put('/profile', authenticateUser, updateProfile);
+
+
 
 // Admin only routes
 router.get('/users', authenticateUser, requireRole(['admin']), (req, res) => {

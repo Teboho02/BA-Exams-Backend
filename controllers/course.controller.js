@@ -1,5 +1,7 @@
 import { validationResult } from 'express-validator';
 import supabase from '../config/postgres.js';
+import crypto from 'crypto';
+
 
 // Utility functions
 const createErrorResponse = (message, errors = null) => ({
@@ -50,7 +52,7 @@ const createCourseInDB = async (courseData) => {
     }])
     .select()
     .single();
-  
+
   if (error) throw error;
   return data;
 };
@@ -62,7 +64,7 @@ const addCourseToTeacher = async (teacherId, courseId) => {
       teacher_id: teacherId,
       course_id: courseId
     }]);
-  
+
   if (error) throw error;
 };
 
@@ -81,7 +83,7 @@ const findCoursesWithFilters = async (filters, userId, userRole) => {
   if (filters.subject) {
     query = query.eq('subject', filters.subject);
   }
-  
+
   if (filters.isActive !== undefined) {
     query = query.eq('is_active', filters.isActive);
   }
@@ -118,7 +120,7 @@ const findCoursesWithFilters = async (filters, userId, userRole) => {
 //     `)
 //     .eq('id', id)
 //     .single();
-  
+
 //   if (error && error.code !== 'PGRST116') throw error;
 //   return data;
 // };
@@ -136,7 +138,7 @@ const updateCourseById = async (id, updates) => {
     .eq('id', id)
     .select()
     .single();
-  
+
   if (error) throw error;
   return data;
 };
@@ -151,7 +153,7 @@ const deactivateCourse = async (id) => {
     .eq('id', id)
     .select()
     .single();
-  
+
   if (error) throw error;
   return data;
 };
@@ -165,7 +167,7 @@ const enrollStudentInCourse = async (courseId, studentId) => {
       enrolled_at: new Date().toISOString()
     }])
     .select();
-  
+
   if (error) throw error;
   return data;
 };
@@ -176,7 +178,7 @@ const unenrollStudentFromCourse = async (courseId, studentId) => {
     .delete()
     .eq('course_id', courseId)
     .eq('student_id', studentId);
-  
+
   if (error) throw error;
 };
 
@@ -187,12 +189,12 @@ const addModuleToCourse = async (courseId, moduleData) => {
     .select('modules')
     .eq('id', courseId)
     .single();
-  
+
   if (fetchError) throw fetchError;
-  
+
   const existingModules = course.modules || [];
   const updatedModules = [...existingModules, moduleData];
-  
+
   const { data, error } = await supabase
     .from('courses')
     .update({
@@ -202,7 +204,7 @@ const addModuleToCourse = async (courseId, moduleData) => {
     .eq('id', courseId)
     .select()
     .single();
-  
+
   if (error) throw error;
   return data;
 };
@@ -287,7 +289,7 @@ const getCourse = async (req, res) => {
 
     // Check if enrollments are included
     console.log('👥 Enrollments in course:', course.enrollments?.length || 0);
-    
+
     if (course.enrollments) {
       console.log('📝 Enrollment details:', course.enrollments);
     }
@@ -337,7 +339,7 @@ const getCourse = async (req, res) => {
 // Also add debugging to your findCourseById function
 const findCourseById = async (id) => {
   console.log('🔍 Finding course by ID:', id);
-  
+
   const { data, error } = await supabase
     .from('courses')
     .select(`
@@ -359,12 +361,12 @@ const findCourseById = async (id) => {
     `)
     .eq('id', id)
     .single();
-  
+
   if (error && error.code !== 'PGRST116') {
     console.log('❌ Database error:', error);
     throw error;
   }
-  
+
   console.log('📊 Raw DB response:', JSON.stringify(data, null, 2));
   return data;
 };
@@ -439,7 +441,7 @@ const findStudentByEmail = async (email) => {
     .eq('role', 'student')
     .eq('is_active', true)
     .single();
-  
+
   if (error && error.code !== 'PGRST116') throw error;
   return data;
 };
@@ -452,7 +454,7 @@ const checkExistingEnrollment = async (courseId, studentId) => {
     .eq('course_id', courseId)
     .eq('student_id', studentId)
     .single();
-  
+
   if (error && error.code !== 'PGRST116') throw error;
   return data;
 };
@@ -732,7 +734,7 @@ const findCourseByCode = async (courseCode) => {
     .eq('code', courseCode.toUpperCase())
     .eq('is_active', true)
     .single();
-  
+
   if (error && error.code !== 'PGRST116') throw error;
   return data;
 };
@@ -745,7 +747,7 @@ const checkExistingRegistrationRequest = async (courseId, studentId) => {
     .eq('student_id', studentId)
     .eq('status', 'pending')
     .single();
-  
+
   if (error && error.code !== 'PGRST116') throw error;
   return data;
 };
@@ -769,7 +771,7 @@ const createRegistrationRequest = async (courseId, studentId, courseCode) => {
       course:courses(id, title, code, subject)
     `)
     .single();
-  
+
   if (error) throw error;
   return data;
 };
@@ -800,7 +802,7 @@ const updateRegistrationRequest = async (requestId, updates, processedBy) => {
       student:users!student_id(id, first_name, last_name, email)
     `)
     .single();
-  
+
   if (error) throw error;
   return data;
 };
@@ -815,7 +817,7 @@ const requestCourseRegistration = async (req, res) => {
 
     // Find course by code
     const course = await findCourseByCode(courseCode);
-    
+
     if (!course) {
       return res.status(404).json(createErrorResponse(
         `Course with code "${courseCode}" not found. Please check the course code and try again.`
@@ -946,7 +948,7 @@ const getStudentRegistrationRequests = async (studentId) => {
     `)
     .eq('student_id', studentId)
     .order('requested_at', { ascending: false });
-  
+
   if (error) throw error;
   return data || [];
 };
@@ -964,7 +966,7 @@ const findRegistrationRequestById = async (requestId, instructorId) => {
       `)
       .eq('id', requestId)
       .single();
-    
+
     if (requestError && requestError.code !== 'PGRST116') throw requestError;
     if (!request) return null;
 
@@ -1008,10 +1010,10 @@ const getRegistrationRequests = async (req, res) => {
   try {
     const instructorId = req.user.id;
     console.log('Getting registration requests for instructor:', instructorId);
-    
+
     const requests = await getRegistrationRequestsForInstructor(instructorId);
     console.log('Found requests:', requests.length);
-    
+
     const sanitizedRequests = requests.map(request => ({
       id: request.id,
       courseCode: request.course_code,
@@ -1047,7 +1049,7 @@ const processRegistrationRequest = async (req, res) => {
 
     // Find and validate request
     const request = await findRegistrationRequestById(requestId, instructorId);
-    
+
     if (!request) {
       return res.status(404).json(createErrorResponse(
         'Registration request not found or you do not have permission to process it.'
@@ -1064,7 +1066,7 @@ const processRegistrationRequest = async (req, res) => {
     if (status === 'approved') {
       try {
         console.log('Approving request - enrolling student:', request.student_id, 'in course:', request.course_id);
-        
+
         // Check if student is already enrolled (just in case)
         const existingEnrollment = await checkExistingEnrollment(request.course_id, request.student_id);
         if (!existingEnrollment) {
@@ -1083,12 +1085,12 @@ const processRegistrationRequest = async (req, res) => {
 
     // Update the registration request
     const updatedRequest = await updateRegistrationRequest(
-      requestId, 
-      { status, notes, rejectionReason }, 
+      requestId,
+      { status, notes, rejectionReason },
       instructorId
     );
 
-    const responseMessage = status === 'approved' 
+    const responseMessage = status === 'approved'
       ? `Registration request approved. ${updatedRequest.student.first_name} ${updatedRequest.student.last_name} has been enrolled in ${updatedRequest.course.title}.`
       : `Registration request rejected.`;
 
@@ -1113,15 +1115,15 @@ const processRegistrationRequest = async (req, res) => {
 const getMyRegistrationRequests = async (req, res) => {
   try {
     const studentId = req.user.id;
-    
+
     const requests = await getStudentRegistrationRequests(studentId);
-    
+
     const sanitizedRequests = requests.map(request => ({
       id: request.id,
       courseCode: request.course_code,
       courseTitle: request.course?.title || 'Unknown Course',
       courseSubject: request.course?.subject || 'Unknown Subject',
-      instructorName: request.course?.teacher 
+      instructorName: request.course?.teacher
         ? `${request.course.teacher.first_name} ${request.course.teacher.last_name}`
         : 'Unknown Instructor',
       status: request.status,
@@ -1143,7 +1145,337 @@ const getMyRegistrationRequests = async (req, res) => {
 };
 
 
-// Export controller functions
+const generateRegistrationToken = () => {
+  return crypto.randomBytes(32).toString('hex');
+};
+
+const createRegistrationLink = async (courseId, createdBy, options = {}) => {
+  const token = generateRegistrationToken();
+  const expiresAt = options.expiresAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // Default 7 days
+  const maxUses = options.maxUses || 1;
+
+  const { data, error } = await supabase
+    .from('course_registration_links')
+    .insert([{
+      course_id: courseId,
+      created_by: createdBy,
+      token: token,
+      expires_at: expiresAt,
+      max_uses: maxUses,
+      notes: options.notes
+    }])
+    .select(`
+      *,
+      course:courses(id, title, code, subject),
+      creator:users!created_by(id, first_name, last_name, email)
+    `)
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+const findValidRegistrationLink = async (token) => {
+  const { data, error } = await supabase
+    .from('course_registration_links')
+    .select(`
+      *,
+      course:courses(
+        id, 
+        title, 
+        code, 
+        subject, 
+        description,
+        is_active,
+        max_students,
+        current_enrollment,
+        teacher:users!instructor_id(id, first_name, last_name, email)
+      )
+    `)
+    .eq('token', token)
+    .eq('is_used', false)
+    .gt('expires_at', new Date().toISOString())
+    .lt('current_uses', supabase.raw('max_uses'))
+    .single();
+
+  if (error && error.code !== 'PGRST116') throw error;
+  return data;
+};
+
+//  Controller functions to add to your existing controller
+const generateCourseRegistrationLink = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json(createErrorResponse('Validation failed', errors.array()));
+    }
+
+    const courseId = req.params.courseId || req.params.id;
+    const createdBy = req.user.id;
+    const { expiresInDays = 7, maxUses = 1, notes } = req.body;
+
+    // Check if course exists and user has permission
+    const course = await findCourseById(courseId);
+    if (!course) {
+      return res.status(404).json(createErrorResponse('Course not found'));
+    }
+
+    // Check if user is the instructor or has teaching assignment
+    if (course.instructor_id !== req.user.id) {
+      const { data: teachingAssignment, error } = await supabase
+        .from('teaching_assignments')
+        .select('id')
+        .eq('teacher_id', req.user.id)
+        .eq('course_id', courseId)
+        .single();
+
+      if (error || !teachingAssignment) {
+        return res.status(403).json(createErrorResponse('You do not have permission to create registration links for this course'));
+      }
+    }
+
+    // Calculate expiration date
+    const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000);
+
+    // Create registration link
+    const registrationLink = await createRegistrationLink(courseId, createdBy, {
+      expiresAt,
+      maxUses,
+      notes
+    });
+
+    // Generate the full URL
+    const frontendBaseUrl = process.env.FRONTEND_BASE_URL || 'http://localhost:3000';
+    const registrationUrl = `${frontendBaseUrl}/register/${registrationLink.token}`;
+
+    res.status(201).json(createSuccessResponse({
+      link: {
+        id: registrationLink.id,
+        token: registrationLink.token,
+        url: registrationUrl,
+        courseTitle: registrationLink.course.title,
+        courseCode: registrationLink.course.code,
+        expiresAt: registrationLink.expires_at,
+        maxUses: registrationLink.max_uses,
+        currentUses: registrationLink.current_uses,
+        notes: registrationLink.notes,
+        createdAt: registrationLink.created_at
+      }
+    }, 'Registration link created successfully'));
+
+  } catch (error) {
+    console.error('Generate registration link error:', error);
+    res.status(500).json(createErrorResponse('Failed to create registration link'));
+  }
+};
+
+const validateRegistrationLink = async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    const registrationLink = await findValidRegistrationLink(token);
+
+    if (!registrationLink) {
+      return res.status(404).json(createErrorResponse('Invalid or expired registration link'));
+    }
+
+    // Check if course is still active and has capacity
+    if (!registrationLink.course.is_active) {
+      return res.status(400).json(createErrorResponse('This course is no longer active'));
+    }
+
+    if (registrationLink.course.current_enrollment >= registrationLink.course.max_students) {
+      return res.status(400).json(createErrorResponse('Course is at full capacity'));
+    }
+
+    res.json(createSuccessResponse({
+      course: {
+        id: registrationLink.course.id,
+        title: registrationLink.course.title,
+        code: registrationLink.course.code,
+        subject: registrationLink.course.subject,
+        description: registrationLink.course.description,
+        teacher: registrationLink.course.teacher ? {
+          firstName: registrationLink.course.teacher.first_name,
+          lastName: registrationLink.course.teacher.last_name,
+          email: registrationLink.course.teacher.email
+        } : null
+      },
+      link: {
+        expiresAt: registrationLink.expires_at,
+        maxUses: registrationLink.max_uses,
+        currentUses: registrationLink.current_uses,
+        notes: registrationLink.notes
+      }
+    }));
+
+  } catch (error) {
+    console.error('Validate registration link error:', error);
+    res.status(500).json(createErrorResponse('Failed to validate registration link'));
+  }
+};
+
+const registerViaLink = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const studentId = req.user.id;
+
+    // Validate the registration link
+    const registrationLink = await findValidRegistrationLink(token);
+
+    if (!registrationLink) {
+      return res.status(404).json(createErrorResponse('Invalid or expired registration link'));
+    }
+
+    const courseId = registrationLink.course.id;
+
+    // Check if course is still active and has capacity
+    if (!registrationLink.course.is_active) {
+      return res.status(400).json(createErrorResponse('This course is no longer active'));
+    }
+
+    if (registrationLink.course.current_enrollment >= registrationLink.course.max_students) {
+      return res.status(400).json(createErrorResponse('Course is at full capacity'));
+    }
+
+    // Check if student is already enrolled
+    const existingEnrollment = await checkExistingEnrollment(courseId, studentId);
+    if (existingEnrollment) {
+      return res.status(400).json(createErrorResponse(
+        `You are already enrolled in "${registrationLink.course.title}"`
+      ));
+    }
+
+    // Enroll the student
+    await enrollStudentInCourse(courseId, studentId);
+
+    // Mark link as used or increment usage counter
+    if (registrationLink.max_uses === 1) {
+      await supabase
+        .from('course_registration_links')
+        .update({
+          is_used: true,
+          used_by: studentId,
+          used_at: new Date().toISOString(),
+          current_uses: supabase.raw('current_uses + 1'),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', registrationLink.id);
+    } else {
+      // For multi-use links, just increment the counter
+      await supabase
+        .from('course_registration_links')
+        .update({
+          current_uses: supabase.raw('current_uses + 1'),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', registrationLink.id);
+    }
+
+    res.json(createSuccessResponse({
+      course: {
+        id: registrationLink.course.id,
+        title: registrationLink.course.title,
+        code: registrationLink.course.code,
+        subject: registrationLink.course.subject,
+        description: registrationLink.course.description
+      },
+      enrollment: {
+        enrolledAt: new Date().toISOString(),
+        status: 'active'
+      }
+    }, `Successfully enrolled in "${registrationLink.course.title}"`));
+
+  } catch (error) {
+    console.error('Register via link error:', error);
+
+    if (error.code === '23505') {
+      return res.status(400).json(createErrorResponse('You are already enrolled in this course'));
+    }
+
+    res.status(500).json(createErrorResponse('Failed to complete registration'));
+  }
+};
+
+const getCourseRegistrationLinks = async (req, res) => {
+  try {
+    const courseId = req.params.id;
+    const userId = req.user.id;
+
+    // Check if course exists and user has permission
+    const course = await findCourseById(courseId);
+    if (!course) {
+      return res.status(404).json(createErrorResponse('Course not found'));
+    }
+
+    // Check if user is the instructor or has teaching assignment
+    if (course.instructor_id !== userId) {
+      const { data: teachingAssignment, error } = await supabase
+        .from('teaching_assignments')
+        .select('id')
+        .eq('teacher_id', userId)
+        .eq('course_id', courseId)
+        .single();
+
+      if (error || !teachingAssignment) {
+        return res.status(403).json(createErrorResponse('You do not have permission to view registration links for this course'));
+      }
+    }
+
+    // Get registration links for this course
+    const { data: links, error: linksError } = await supabase
+      .from('course_registration_links')
+      .select(`
+        *,
+        used_by_user:users!used_by(id, first_name, last_name, email),
+        creator:users!created_by(id, first_name, last_name, email)
+      `)
+      .eq('course_id', courseId)
+      .order('created_at', { ascending: false });
+
+    if (linksError) {
+      throw linksError;
+    }
+
+    const frontendBaseUrl = process.env.FRONTEND_BASE_URL || 'http://localhost:3000';
+    
+    const sanitizedLinks = (links || []).map(link => ({
+      id: link.id,
+      token: link.token,
+      url: `${frontendBaseUrl}/register/${link.token}`,
+      isUsed: link.is_used,
+      expiresAt: link.expires_at,
+      maxUses: link.max_uses,
+      currentUses: link.current_uses,
+      notes: link.notes,
+      createdAt: link.created_at,
+      usedAt: link.used_at,
+      usedBy: link.used_by_user ? {
+        firstName: link.used_by_user.first_name,
+        lastName: link.used_by_user.last_name,
+        email: link.used_by_user.email
+      } : null,
+      createdBy: link.creator ? {
+        firstName: link.creator.first_name,
+        lastName: link.creator.last_name,
+        email: link.creator.email
+      } : null,
+      isExpired: new Date(link.expires_at) < new Date(),
+      isValid: !link.is_used && new Date(link.expires_at) >= new Date() && link.current_uses < link.max_uses
+    }));
+
+    res.json(createSuccessResponse({
+      count: sanitizedLinks.length,
+      links: sanitizedLinks
+    }));
+
+  } catch (error) {
+    console.error('Get course registration links error:', error);
+    res.status(500).json(createErrorResponse('Failed to fetch registration links'));
+  }
+};
+
+
 export {
   createCourse,
   getCourses,
@@ -1154,16 +1486,23 @@ export {
   enrollStudentByEmail,
   unenrollStudent,
   addModule,
-  getUserEnrolledCourses,  
+  getUserEnrolledCourses,
   getUserCourses,
   requestCourseRegistration,
   getRegistrationRequests,
   processRegistrationRequest,
-  getMyRegistrationRequests,   
+  getMyRegistrationRequests,
   findCourseByCode,
   findCourseById,
   findStudentByEmail,
   checkExistingEnrollment,
-  createRegistrationRequest,       
+  createRegistrationRequest,
+  generateCourseRegistrationLink,
+  validateRegistrationLink,
+  registerViaLink,
+  generateRegistrationToken,
+  createRegistrationLink,
+  findValidRegistrationLink,
+  getCourseRegistrationLinks,
   handleValidationErrors
 };

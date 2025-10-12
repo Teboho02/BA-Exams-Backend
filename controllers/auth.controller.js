@@ -3,6 +3,8 @@ import { validationResult } from 'express-validator';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import supabase from '../config/postgres.js';
+
+
 // Utility functions
 const createErrorResponse = (message, errors = null) => ({
   success: false,
@@ -187,6 +189,139 @@ export const login = async (req, res) => {
 };
 
 
+// Add to existing imports
+import { createClient } from '@supabase/supabase-js';
+
+// Add Google Sign-In handler
+export const googleSignIn = async (req, res) => {
+  try {
+    const { redirectTo = process.env.CLIENT_URL || 'http://localhost:3000' } = req.body;
+    
+    // Generate the Google OAuth URL
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${redirectTo}/auth/callback`, // Where to redirect after auth
+        scopes: 'email profile', // Request email and profile info
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'consent',
+        }
+      }
+    });
+
+    if (error) {
+      console.error('Google sign-in error:', error);
+      return res.status(400).json(createErrorResponse('Failed to initiate Google sign-in'));
+    }
+
+    // Return the OAuth URL for the frontend to redirect to
+    res.json(createSuccessResponse({
+      url: data.url
+    }, 'Google sign-in URL generated'));
+
+  } catch (error) {
+    console.error('Google sign-in error:', error);
+    res.status(500).json(createErrorResponse('Google sign-in failed'));
+  }
+};
+
+// Handle Google OAuth callback
+export const googleCallback = async (req, res) => {
+  try {
+    const { access_token, refresh_token } = req.body;
+
+    if (!access_token) {
+      return res.status(400).json(createErrorResponse('No access token provided'));
+    }
+
+    // Set the session using the tokens from Google
+    const { data: { user }, error: sessionError } = await supabase.auth.setSession({
+      access_token,
+      refresh_token
+    });
+
+    if (sessionError) {
+      console.error('Session error:', sessionError);
+      return res.status(400).json(createErrorResponse('Failed to create session'));
+    }
+
+    if (!user) {
+      return res.status(400).json(createErrorResponse('No user data received'));
+    }
+
+    // Check if user exists in our database
+    let { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+
+    // If user doesn't exist, create profile
+    if (userError && userError.code === 'PGRST116') {
+      const googleProfile = user.user_metadata;
+      
+      const { data: newUser, error: createError } = await supabase
+        .from('users')
+        .insert({
+          id: user.id,
+          email: user.email,
+          first_name: googleProfile.given_name || googleProfile.full_name?.split(' ')[0] || '',
+          last_name: googleProfile.family_name || googleProfile.full_name?.split(' ').slice(1).join(' ') || '',
+          avatar_url: googleProfile.avatar_url || googleProfile.picture,
+          role: 'student', // Default role
+          is_active: true,
+          auth_provider: 'google',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (createError) {
+        console.error('Create user error:', createError);
+        return res.status(500).json(createErrorResponse('Failed to create user profile'));
+      }
+
+      userData = newUser;
+    } else if (userError) {
+      console.error('Database error:', userError);
+      return res.status(500).json(createErrorResponse('Database error'));
+    }
+
+    // Generate our own JWT tokens
+    const { accessToken, refreshToken: jwtRefreshToken } = generateTokens(userData.id);
+    
+    // Set cookies
+    const isProduction = process.env.NODE_ENV === 'production';
+    const cookieOptions = {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'Lax',
+      maxAge: 1 * 24 * 60 * 60 * 1000,
+    };
+
+    const refreshCookieOptions = {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'Lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+    };
+
+    res.cookie('accessToken', accessToken, cookieOptions);
+    res.cookie('refreshToken', jwtRefreshToken, refreshCookieOptions);
+
+    // Return user data
+    res.json(createSuccessResponse({
+      user: sanitizeUser(userData)
+    }, 'Google sign-in successful'));
+
+  } catch (error) {
+    console.error('Google callback error:', error);
+    res.status(500).json(createErrorResponse('Failed to process Google sign-in'));
+  }
+};
+
 // Logout user (with token blacklisting if needed)
 // Logout user (with token blacklisting if needed)
 export const logout = async (req, res) => {
@@ -341,8 +476,71 @@ export const updateProfile = async (req, res) => {
     res.status(500).json(createErrorResponse('Failed to update profile'));
   }
 };
+// authController.js
 
-// Change password
+export const SendResetPasswordLink = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json(createErrorResponse('Email is required'));
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json(createErrorResponse('Invalid email format'));
+    }
+
+    // Send password reset email via Supabase
+    const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${process.env.CLIENT_URL || 'http://localhost:3000'}/reset-password`
+    });
+
+    if (error) {
+      console.error('Reset password error:', error);
+      return res.status(400).json(createErrorResponse('Failed to send reset email'));
+    }
+
+    // For security, always return success even if email doesn't exist
+    res.json(createSuccessResponse({}, 'If an account exists with this email, a password reset link has been sent'));
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json(createErrorResponse('Failed to process request'));
+  }
+};
+
+export const resetPassword = async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+
+    if (!token || !newPassword) {
+      return res.status(400).json(createErrorResponse('Token and new password are required'));
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json(createErrorResponse('New password must be at least 8 characters long'));
+    }
+
+    // Verify the token and update password
+    const { data, error } = await supabase.auth.updateUser({
+      password: newPassword
+    });
+
+    if (error) {
+      console.error('Password reset confirmation error:', error);
+      return res.status(400).json(createErrorResponse('Invalid or expired reset token'));
+    }
+
+    res.json(createSuccessResponse({}, 'Password reset successfully'));
+
+  } catch (error) {
+    console.error('Reset password confirmation error:', error);
+    res.status(500).json(createErrorResponse('Failed to reset password'));
+  }
+};
+
+// For authenticated users to change their password (requires current password verification)
 export const changePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -352,12 +550,19 @@ export const changePassword = async (req, res) => {
       return res.status(400).json(createErrorResponse('Current password and new password are required'));
     }
 
-    if (newPassword.length < 6) {
-      return res.status(400).json(createErrorResponse('New password must be at least 6 characters long'));
+    if (newPassword.length < 8) {
+      return res.status(400).json(createErrorResponse('New password must be at least 8 characters long'));
     }
 
-    // Update password in Supabase Auth
-    const { error } = await supabase.auth.admin.updateUserById(userId, {
+    // First, verify current password by signing in
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    
+    if (userError) {
+      return res.status(401).json(createErrorResponse('Authentication required'));
+    }
+
+    // Update password using the standard method (user must be authenticated)
+    const { error } = await supabase.auth.updateUser({
       password: newPassword
     });
 
@@ -374,6 +579,7 @@ export const changePassword = async (req, res) => {
   }
 };
 
+
 // Export all functions
 export default {
   register,
@@ -382,5 +588,7 @@ export default {
   refreshToken,
   getProfile,
   updateProfile,
-  changePassword
+  changePassword,
+  SendResetPasswordLink,
+  resetPassword,
 };

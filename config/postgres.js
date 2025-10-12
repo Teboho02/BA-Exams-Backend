@@ -5,17 +5,17 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const supabaseUrl = 'https://fvtlhnrmnnnqgefpxdbu.supabase.co'
-const supabaseKey = process.env.SUPABASE_ANON_KEY;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY; // Changed this
 
-if (!supabaseUrl || !supabaseKey) {
+if (!supabaseUrl || !supabaseServiceKey) {
   throw new Error('Missing Supabase environment variables. Please check your .env file.');
 }
 
-// Create Supabase client
-const supabase = createClient(supabaseUrl, supabaseKey, {
+// Create Supabase client with service role key
+const supabase = createClient(supabaseUrl, supabaseServiceKey, {
   auth: {
-    autoRefreshToken: true,
-    persistSession: false, // We handle JWT tokens manually
+    autoRefreshToken: false,
+    persistSession: false,
   },
 });
 

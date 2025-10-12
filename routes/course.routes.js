@@ -16,6 +16,10 @@ import {
   getRegistrationRequests,
   processRegistrationRequest,
   getMyRegistrationRequests,
+  generateCourseRegistrationLink,
+  getCourseRegistrationLinks,
+  validateRegistrationLink,
+  registerViaLink,
   handleValidationErrors
 } from '../controllers/course.controller.js';
 import { authenticateUser, requireRole } from '../middleware/auth.middleware.js';
@@ -104,6 +108,30 @@ const enrollmentValidation = [
     .withMessage('Student ID is required')
     .isUUID()
     .withMessage('Student ID must be a valid UUID')
+];
+// Add these validation rules to your existing validation section in the routes file
+
+const validateGenerateLink = [
+  body('expiresInDays')
+    .optional()
+    .isInt({ min: 1, max: 365 })
+    .withMessage('Expiration must be between 1 and 365 days'),
+  body('maxUses')
+    .optional()
+    .isInt({ min: 1, max: 1000 })
+    .withMessage('Max uses must be between 1 and 1000'),
+  body('notes')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Notes must be 500 characters or less')
+];
+
+const validateToken = [
+  param('token')
+    .isLength({ min: 32, max: 255 })
+    .matches(/^[a-f0-9]+$/)
+    .withMessage('Invalid token format')
 ];
 
 const moduleValidation = [
@@ -541,6 +569,46 @@ router.delete(
     // This would be implemented in your controller
     res.status(501).json({ message: 'Not implemented yet' });
   }
+);
+
+router.post(
+  '/:id/registration-links',
+  authenticateUser,
+  requireRole(['teacher', 'admin']),
+  validateGenerateLink,
+  handleValidationErrors,
+  generateCourseRegistrationLink
+);
+
+// Validate a registration link (Public - no auth required for validation)
+router.get(
+  '/register/:token',
+  validateToken,
+  handleValidationErrors,
+  validateRegistrationLink
+);
+
+// Register using a registration link (Students only)
+router.post(
+  '/register/:token',
+  authenticateUser,
+  requireRole(['student', 'teacher', 'admin']),
+  validateToken,
+  handleValidationErrors,
+  registerViaLink
+);
+
+/**
+ * @route   GET /api/courses/:id/registration-links  
+ * @desc    Get all registration links for a course
+ * @access  Private (Teachers/Admins only)
+ */
+router.get(
+  '/:id/registration-links',
+  requireRole(['teacher', 'admin']),
+  paramValidation,
+  handleValidationErrors,
+  getCourseRegistrationLinks
 );
 
 export default router;

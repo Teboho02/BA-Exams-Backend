@@ -1,0 +1,13 @@
+Sitemap: https://baonlineexaminations.com/sitemap.xml
+
+bitnami@ip-172-26-14-153:/opt/bitnami/apps/edu-platform$ cat sitemap.xml
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://www.baonlineexaminations.com/</loc>
+    <lastmod>2025-08-19</lastmod>
+    <priority>1.0</priority>
+  </url>
+</urlset>
+
+bitnami@ip-172-26-14-153:/opt/bitnami/apps/edu-platform$ GET.js

@@ -44,12 +44,7 @@ const getPerformanceLevel = (percentage) => {
 /**
  * Get detailed assessment review data for teachers
  */
-/**
- * Get detailed assessment review data for teachers
- */
-/**
- * Get detailed assessment review data for teachers
- */
+
 export const getAssessmentReview = async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -57,8 +52,10 @@ export const getAssessmentReview = async (req, res) => {
       return res.status(400).json(createErrorResponse('Validation failed', errors.array()));
     }
 
+    console.log("req.params , ",req.params);
+
     const { assessmentId } = req.params;
-    const teacherId = req.user.id;
+    const teacherId = "871ed189-c7f7-44e1-8cdd-adeecea39cea";
 
     console.log(`Fetching assessment review for teacher: ${teacherId}, assessment: ${assessmentId}`);
 

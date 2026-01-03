@@ -97,7 +97,7 @@ export const register = async (req, res) => {
 
 export const login = async (req, res) => {
   try {
-    // Check validation errors
+    // ✅ 1. Validate request
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res
@@ -106,13 +106,11 @@ export const login = async (req, res) => {
     }
 
     const { email, password } = req.body;
+    const clientOrigin = req.header('X-Client-Origin');
 
-    // Sign in with Supabase Auth
+    // ✅ 2. Supabase auth
     const { data: authData, error: authError } =
-      await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      await supabase.auth.signInWithPassword({ email, password });
 
     if (authError) {
       return res
@@ -120,7 +118,7 @@ export const login = async (req, res) => {
         .json(createErrorResponse('Invalid email or password'));
     }
 
-    // Get user profile (must be active)
+    // ✅ 3. Fetch active user
     const { data: userData, error: userError } = await supabase
       .from('users')
       .select('*')
@@ -131,57 +129,52 @@ export const login = async (req, res) => {
     if (userError || !userData) {
       return res
         .status(401)
-        .json(
-          createErrorResponse('User account not found or deactivated'),
-        );
+        .json(createErrorResponse('User account not found or deactivated'));
     }
 
-    // Generate tokens
+    // ✅ 4. Generate tokens
     const { accessToken, refreshToken } = generateTokens(userData.id);
     const isProduction = process.env.NODE_ENV === 'production';
 
-
-    // const cookieOptions = {
-    //   httpOnly: true,
-    //   secure: isProduction, // false for localhost, true for production
-    //   sameSite: isProduction ? 'None' : 'Lax', // Lax for localhost, None for cross-origin production
-    //   maxAge: 1 * 24 * 60 * 60 * 1000, // 1 day
-    // };
-
-    // const refreshCookieOptions = {
-    //   httpOnly: true,
-    //   secure: isProduction,
-    //   sameSite: isProduction ? 'None' : 'Lax',
-    //   maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-    // };
-
     const cookieOptions = {
       httpOnly: true,
-      secure: isProduction, // Only true in HTTPS production
-      sameSite: 'Lax', // Can use Lax for same-origin
-      maxAge: 1 * 24 * 60 * 60 * 1000,
+      secure: isProduction,
+      sameSite: 'Lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 1 day
     };
 
     const refreshCookieOptions = {
       httpOnly: true,
       secure: isProduction,
-      sameSite: 'Lax', // Much more permissive than 'None'
-      maxAge: 30 * 24 * 60 * 60 * 1000,
+      sameSite: 'Lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     };
 
-    res.cookie('accessToken', accessToken, cookieOptions);
-    res.cookie('refreshToken', refreshToken, refreshCookieOptions);
-    // Set cookies with secure flags
+    // ✅ 5. Respond differently based on origin
+    if (clientOrigin === 'mobile') {
+      // 🔹 Mobile clients → return tokens directly in JSON
+      return res.json(
+        createSuccessResponse(
+          {
+            user: sanitizeUser(userData),
+            accessToken,
+            refreshToken,
+          },
+          'Login successful (mobile)',
+        ),
+      );
+    } else {
+      // 🔹 Web clients → use cookies
+      res.cookie('accessToken', accessToken, cookieOptions);
+      res.cookie('refreshToken', refreshToken, refreshCookieOptions);
 
-    // Return response (no tokens in body for security, just user info)
-    res.json(
-      createSuccessResponse(
-        {
-          user: sanitizeUser(userData),
-        },
-        'Login successful',
-      ),
-    );
+      return res.json(
+        createSuccessResponse(
+          { user: sanitizeUser(userData) },
+          'Login successful (web)',
+        ),
+      );
+    }
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json(createErrorResponse('Login failed'));
@@ -196,7 +189,7 @@ import { createClient } from '@supabase/supabase-js';
 export const googleSignIn = async (req, res) => {
   try {
     const { redirectTo = process.env.CLIENT_URL || 'http://localhost:3000' } = req.body;
-    
+
     // Generate the Google OAuth URL
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -260,7 +253,7 @@ export const googleCallback = async (req, res) => {
     // If user doesn't exist, create profile
     if (userError && userError.code === 'PGRST116') {
       const googleProfile = user.user_metadata;
-      
+
       const { data: newUser, error: createError } = await supabase
         .from('users')
         .insert({
@@ -291,7 +284,7 @@ export const googleCallback = async (req, res) => {
 
     // Generate our own JWT tokens
     const { accessToken, refreshToken: jwtRefreshToken } = generateTokens(userData.id);
-    
+
     // Set cookies
     const isProduction = process.env.NODE_ENV === 'production';
     const cookieOptions = {
@@ -556,7 +549,7 @@ export const changePassword = async (req, res) => {
 
     // First, verify current password by signing in
     const { data: userData, error: userError } = await supabase.auth.getUser();
-    
+
     if (userError) {
       return res.status(401).json(createErrorResponse('Authentication required'));
     }

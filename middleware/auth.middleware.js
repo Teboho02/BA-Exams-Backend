@@ -10,20 +10,23 @@ const createErrorResponse = (message, statusCode = 401) => ({
 });
 
 // Main authentication middleware
-
 export const authenticateUser = async (req, res, next) => {
-  try {
 
-    console.log('=== Auth Debug ===');
-    console.log('Cookies received:', req.cookies);
-    console.log('Origin:', req.get('Origin'));
-    // console.log('Referer:', req.get('Referer'));
-    // console.log('All headers:', req.headers);
+  try {
 
     let token;
 
-    token = req.cookies.accessToken;
-
+    // First, check for token in Authorization header (Bearer token)
+    const authHeader = req.get('Authorization');
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7); // Remove 'Bearer ' prefix
+      console.log('Using token from Authorization header');
+    }
+    
+    // If no token in header, check cookies
+    if (!token && req.cookies && req.cookies.accessToken) {
+      token = req.cookies.accessToken;
+    }
 
     if (!token) {
       return res.status(401).json(createErrorResponse('Access token required'));

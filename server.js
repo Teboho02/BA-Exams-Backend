@@ -21,55 +21,10 @@ const PORT = process.env.PORT || 3000;
 
 app.set('trust proxy', true);
 
-// Updated Helmet configuration to allow inline styles (needed for Vite builds)
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      connectSrc: [
-        "'self'",
-        "http://localhost:3000",
-        "https://www.baonlineexaminations.com",
-        "https://baonlineexaminations.com",
-        "https://edu-platform-backend-uuzw.onrender.com"
-      ], // Allow API connections
-      styleSrc: ["'self'", "'unsafe-inline'", "data:"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "https:"],
-      fontSrc: ["'self'", "data:"],
-    },
-  },
-}));
 
-const allowedOrigins = [
-  'http://localhost:5173',
-  'https://edu-livid.vercel.app',
-  `http://localhost:${PORT}`,
-  'https://edu-platform-backend-uuzw.onrender.com',
-  `http://localhost:3000`,
-  'https://www.baonlineexaminations.com',  
-  'https://baonlineexaminations.com'       //
-];
 
 app.use(cors({
-  origin: function (origin, callback) {
-    const allowedOrigins = [
-      'http://localhost:5173',
-      'https://edu-livid.vercel.app',
-      `http://localhost:${PORT}`,
-      'https://edu-platform-backend-uuzw.onrender.com',
-      `http://localhost:3000`,
-      'https://www.baonlineexaminations.com',  // Add your production domain
-      'https://baonlineexaminations.com'       // Add without www as well
-    ];
-
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log(`❌ CORS blocked request from origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: true, // Allow all origins
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -90,7 +45,6 @@ const generalLimiter = rateLimit({
   }
 });
 
-app.use(generalLimiter)
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

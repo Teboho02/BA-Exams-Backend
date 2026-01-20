@@ -1,6 +1,10 @@
 import { validationResult } from 'express-validator';
 import supabase from '../config/postgres.js';
 import { client } from '../config/redis.js';
+import axios from 'axios';
+
+const GRADING_SERVICE_URL =  'http://localhost:3001';
+
 
 // Utility functions
 const createErrorResponse = (message, errors = null) => ({
@@ -1088,14 +1092,15 @@ export const verifyQuizPassword = async (req, res) => {
 
 //submit quiz answers
 
-// Enhanced quiz submission grading function
+
+
 export const submitQuizAnswers = async (req, res) => {
   try {
     const { assignmentId } = req.params;
     const { answers } = req.body;
     const userId = req.user.id;
 
-    // Get assignment details
+    // Verify assignment exists
     const { data: assignment, error: assignmentError } = await supabase
       .from('assignments')
       .select('*')
@@ -1106,152 +1111,22 @@ export const submitQuizAnswers = async (req, res) => {
       return res.status(404).json(createErrorResponse('Assignment not found'));
     }
 
-    // Get all questions with their answers and short answer options
-    const { data: questions, error: questionsError } = await supabase
-      .from('quiz_questions')
-      .select(`
-        *,
-        quiz_question_answers(*),
-        quiz_short_answer_options(*)
-      `)
-      .eq('assignment_id', assignmentId)
-      .order('question_number');
-
-    if (questionsError) {
-      return res.status(400).json(createErrorResponse('Failed to load questions'));
-    }
-
-    let autoGradedScore = 0;
-    let totalPossiblePoints = 0;
-    const detailedResults = {};
-
-    // Grade each question
-    for (const question of questions) {
-      totalPossiblePoints += question.points;
-      const userAnswer = answers[question.id];
-      
-      if (!userAnswer) {
-        detailedResults[question.id] = {
-          correct: false,
-          points: 0,
-          requiresManualGrading: false
-        };
-        continue;
-      }
-
-      // Handle different question types
-      if (question.question_type === 'multiple_choice' || question.question_type === 'true_false') {
-        // Multiple choice grading
-        const selectedAnswer = question.quiz_question_answers.find(
-          answer => answer.id === userAnswer.answerId
-        );
-        
-        const isCorrect = selectedAnswer?.is_correct || false;
-        detailedResults[question.id] = {
-          correct: isCorrect,
-          points: isCorrect ? question.points : 0,
-          requiresManualGrading: false
-        };
-        
-        if (isCorrect) {
-          autoGradedScore += question.points;
-        }
-      } else if (question.question_type === 'short_answer') {
-        // Short answer grading - THIS IS THE FIX
-        const userText = userAnswer.textAnswer?.trim() || '';
-        const shortAnswerOptions = question.quiz_short_answer_options || [];
-        
-        let isCorrect = false;
-        
-        // Check each acceptable answer
-        for (const option of shortAnswerOptions) {
-          const optionText = option.answer_text?.trim() || '';
-          
-          if (option.is_exact_match) {
-            // Exact match comparison
-            if (option.is_case_sensitive) {
-              isCorrect = userText === optionText;
-            } else {
-              isCorrect = userText.toLowerCase() === optionText.toLowerCase();
-            }
-          } else {
-            // Contains match comparison
-            if (option.is_case_sensitive) {
-              isCorrect = userText.includes(optionText);
-            } else {
-              isCorrect = userText.toLowerCase().includes(optionText.toLowerCase());
-            }
-          }
-          
-          if (isCorrect) break; // Found a match, no need to check other options
-        }
-        
-        // FALLBACK: If no quiz_short_answer_options exist, check against the question text
-        // This handles the case where the question is "Answer michael" and we expect "michael"
-        if (!isCorrect && shortAnswerOptions.length === 0) {
-          // Extract expected answer from question text
-          const questionText = question.question_text.toLowerCase();
-          const userTextLower = userText.toLowerCase();
-          
-          // Simple pattern matching for questions like "Answer michael", "Type hello", etc.
-          const patterns = [
-            /answer\s+(.+)/i,
-            /type\s+(.+)/i,
-            /enter\s+(.+)/i,
-            /write\s+(.+)/i
-          ];
-          
-          for (const pattern of patterns) {
-            const match = question.question_text.match(pattern);
-            if (match && match[1]) {
-              const expectedAnswer = match[1].trim().toLowerCase();
-              // Use case-insensitive and flexible matching
-              if (question.short_answer_case_sensitive === false || question.short_answer_case_sensitive == null) {
-                isCorrect = userTextLower === expectedAnswer;
-              } else {
-                isCorrect = userText.trim() === match[1].trim();
-              }
-              break;
-            }
-          }
-        }
-        
-        detailedResults[question.id] = {
-          correct: isCorrect,
-          points: isCorrect ? question.points : 0,
-          requiresManualGrading: false
-        };
-        
-        if (isCorrect) {
-          autoGradedScore += question.points;
-        }
-      } else {
-        // Essay, file upload, or other question types require manual grading
-        detailedResults[question.id] = {
-          requiresManualGrading: true,
-          points: 0
-        };
-      }
-    }
-
-    // Create submission record
+    // Create submission record WITH quiz_data (required by database constraint)
     const { data: submission, error: submissionError } = await supabase
       .from('assignment_submissions')
       .insert({
         assignment_id: assignmentId,
         student_id: userId,
-        quiz_data: JSON.stringify({
-          answers,
-          detailedResults,
-          autoGradedScore,
-          totalPossiblePoints
-        }),
-        score: autoGradedScore,
-        status: Object.values(detailedResults).some(result => result.requiresManualGrading) 
-          ? 'submitted' 
-          : 'graded',
+        status: 'pending_grading',
         submitted_at: new Date().toISOString(),
-        attempt_number: 1 // You might want to implement attempt tracking
+        attempt_number: 1,
+        time_completed: new Date().toISOString(),
+        // Include quiz_data to satisfy the database constraint
+        quiz_data: JSON.stringify({
+          answers: answers,
+          submittedAt: new Date().toISOString(),
+          gradingStatus: 'pending'
+        })
       })
       .select()
       .single();
@@ -1260,12 +1135,27 @@ export const submitQuizAnswers = async (req, res) => {
       return res.status(400).json(createErrorResponse('Failed to submit quiz'));
     }
 
-    res.json(createSuccessResponse({
+    // Send to grading service asynchronously
+    try {
+      await axios.post(`${GRADING_SERVICE_URL}/api/grade/submit`, {
+        submissionId: submission.id,
+        assignmentId: assignmentId,
+        studentId: userId,
+        answers: answers
+      }, {
+        timeout: 5000 // Don't wait too long
+      });
+    } catch (gradingError) {
+      console.error('Failed to submit to grading service:', gradingError);
+      // Don't fail the submission if grading service is down
+      // The grading can be retried later
+    }
+
+    // Return immediately to user
+    res.status(202).json(createSuccessResponse({
       submissionId: submission.id,
-      score: autoGradedScore,
-      totalPoints: totalPossiblePoints,
-      detailedResults,
-      requiresManualGrading: Object.values(detailedResults).some(result => result.requiresManualGrading)
+      message: 'Quiz submitted successfully. Grading in progress...',
+      status: 'pending_grading'
     }));
 
   } catch (error) {
@@ -1274,6 +1164,57 @@ export const submitQuizAnswers = async (req, res) => {
   }
 };
 
+// New endpoint to check grading status
+export const getGradingStatus = async (req, res) => {
+  try {
+    const { submissionId } = req.params;
+    const userId = req.user.id;
+
+    // Verify submission belongs to user
+    const { data: submission, error } = await supabase
+      .from('assignment_submissions')
+      .select('*')
+      .eq('id', submissionId)
+      .eq('student_id', userId)
+      .single();
+
+    if (error || !submission) {
+      return res.status(404).json(createErrorResponse('Submission not found'));
+    }
+
+    // If already graded, return results
+    if (submission.status === 'graded') {
+      const quizData = JSON.parse(submission.quiz_data || '{}');
+      return res.json(createSuccessResponse({
+        status: 'graded',
+        score: submission.score,
+        totalPoints: quizData.totalPossiblePoints,
+        detailedResults: quizData.detailedResults,
+        gradedAt: quizData.gradedAt
+      }));
+    }
+
+    // Check grading service for status
+    try {
+      const response = await axios.get(
+        `${GRADING_SERVICE_URL}/api/grade/status/${submissionId}`,
+        { timeout: 3000 }
+      );
+
+      res.json(createSuccessResponse(response.data));
+    } catch (gradingServiceError) {
+      // If grading service is unreachable, return submission status
+      res.json(createSuccessResponse({
+        status: submission.status,
+        message: 'Grading in progress'
+      }));
+    }
+
+  } catch (error) {
+    console.error('Get grading status error:', error);
+    res.status(500).json(createErrorResponse('Failed to get grading status'));
+  }
+};
 // Alternative grading function specifically for short answers
 const gradeShortAnswer = (question, userAnswer) => {
   const userText = userAnswer?.textAnswer?.trim() || '';

@@ -58,3 +58,4 @@ public/uploads/*
 .jest/
 *.test.js
 *.spec.js
+package-lock.zip

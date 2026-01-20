@@ -2,6 +2,7 @@
 import express from 'express';
 import { body, param, query } from 'express-validator';
 import supabase from '../config/postgres.js';
+import { client } from '../config/redis.js';
 import { 
   authenticateUser, 
   requireRole 
@@ -140,7 +141,7 @@ router.get('/assignments/:assignmentId/scores', async (req, res) => {
       return res.status(500).json({ error: submissionsError.message });
     }
 
-    // Create a map of submissions by student_id
+    // Create    map of submissions by student_id
     const submissionMap = new Map();
     submissions?.forEach(sub => {
       if (!submissionMap.has(sub.student_id) || 
@@ -259,9 +260,9 @@ router.get('/assignments/:assignmentId/scores', async (req, res) => {
 
 
 /**
- * GET /api/teacher-review/:assignmentId/student/:studentId
+ * GET /api/teacher-review/assignments/:assignmentId/student/:studentId
  * Fetches detailed quiz review for a single student
- * Includes questions, student answers, and grading information
+ * Includes questions, ALL answer options, student answers, and grading information
  */
 router.get('/assignments/:assignmentId/student/:studentId', async (req, res) => {
   try {
@@ -301,7 +302,7 @@ router.get('/assignments/:assignmentId/student/:studentId', async (req, res) => 
       return res.status(404).json({ error: 'Student not found' });
     }
 
-    // Get quiz questions with their answers/options
+    // Get quiz questions
     const { data: questions, error: questionsError } = await supabase
       .from('quiz_questions')
       .select(`
@@ -311,6 +312,7 @@ router.get('/assignments/:assignmentId/student/:studentId', async (req, res) => 
         question_text,
         question_type,
         points,
+        image_url,
         short_answer_match_type,
         short_answer_case_sensitive
       `)
@@ -321,7 +323,7 @@ router.get('/assignments/:assignmentId/student/:studentId', async (req, res) => 
       return res.status(500).json({ error: questionsError.message });
     }
 
-    // Get multiple choice answers for each question
+    // Get ALL multiple choice answers for all questions
     const { data: mcAnswers, error: mcAnswersError } = await supabase
       .from('quiz_question_answers')
       .select('id, question_id, answer_text, is_correct, feedback, answer_order')
@@ -332,7 +334,7 @@ router.get('/assignments/:assignmentId/student/:studentId', async (req, res) => 
       return res.status(500).json({ error: mcAnswersError.message });
     }
 
-    // Get short answer options for each question
+    // Get ALL short answer options for all questions
     const { data: shortAnswerOptions, error: shortAnswerError } = await supabase
       .from('quiz_short_answer_options')
       .select('id, question_id, answer_text, is_case_sensitive, is_exact_match, answer_order')
@@ -360,7 +362,7 @@ router.get('/assignments/:assignmentId/student/:studentId', async (req, res) => 
       shortAnswerMap.get(option.question_id).push(option);
     });
 
-    // Get student's submission
+    // Get student's submission with quiz_data
     const { data: submission, error: submissionError } = await supabase
       .from('assignment_submissions')
       .select(`
@@ -387,48 +389,8 @@ router.get('/assignments/:assignmentId/student/:studentId', async (req, res) => 
       return res.status(500).json({ error: submissionError.message });
     }
 
-    // Format questions with their answers and student responses
-    const formattedQuestions = questions?.map(question => {
-      const questionData = {
-        id: question.id,
-        questionNumber: question.question_number,
-        title: question.title,
-        questionText: question.question_text,
-        questionType: question.question_type,
-        points: question.points,
-        imageUrl: question.image_url
-      };
-
-      // Add multiple choice answers if applicable
-      if (['multiple_choice', 'true_false'].includes(question.question_type)) {
-        questionData.answers = mcAnswersMap.get(question.id) || [];
-      }
-
-      // Add short answer options if applicable
-      if (question.question_type === 'short_answer') {
-        questionData.shortAnswerOptions = shortAnswerMap.get(question.id) || [];
-        questionData.matchType = question.short_answer_match_type;
-        questionData.caseSensitive = question.short_answer_case_sensitive;
-      }
-
-      // Add student's answer from quiz_data
-      if (submission?.quiz_data && submission.quiz_data[question.id]) {
-        questionData.studentAnswer = submission.quiz_data[question.id];
-      }
-
-      return questionData;
-    }) || [];
-
-    // Calculate percentage if submission exists
-    let percentage = 0;
-    let letterGrade = 'N/A';
-    let performanceLevel = null;
-
-    if (submission && submission.score !== null && assignment.max_points > 0) {
-      percentage = Math.round((submission.score / assignment.max_points) * 100);
-      letterGrade = calculateLetterGrade(percentage);
-      performanceLevel = calculatePerformanceLevel(percentage);
-    }
+    // Debug: Log the quiz_data structure
+    console.log('Submission quiz_data:', JSON.stringify(submission?.quiz_data, null, 2));
 
     // Helper function to calculate letter grade
     function calculateLetterGrade(percentage) {
@@ -445,6 +407,92 @@ router.get('/assignments/:assignmentId/student/:studentId', async (req, res) => 
       if (percentage >= 75) return 'good';
       if (percentage >= 60) return 'satisfactory';
       return 'needs_attention';
+    }
+
+    // Format questions with ALL their answer options and student responses
+    const formattedQuestions = questions?.map(question => {
+      const questionData = {
+        id: question.id,
+        questionNumber: question.question_number,
+        title: question.title,
+        questionText: question.question_text,
+        questionType: question.question_type,
+        points: question.points,
+        imageUrl: question.image_url,
+        answers: [],
+        shortAnswerOptions: [],
+        shortAnswerMatchType: null,
+        shortAnswerCaseSensitive: null
+      };
+
+      // Add ALL multiple choice/true-false answers in the format expected by frontend
+      if (['multiple_choice', 'true_false'].includes(question.question_type)) {
+        const questionAnswers = mcAnswersMap.get(question.id) || [];
+        questionData.answers = questionAnswers.map(ans => ({
+          id: ans.id,
+          answerText: ans.answer_text,
+          isCorrect: ans.is_correct,
+          feedback: ans.feedback || '',
+          answerOrder: ans.answer_order
+        }));
+      }
+
+      // Add ALL short answer options in the format expected by frontend
+      if (question.question_type === 'short_answer') {
+        const options = shortAnswerMap.get(question.id) || [];
+        questionData.shortAnswerOptions = options.map(opt => ({
+          id: opt.id,
+          question_id: opt.question_id,
+          answer_text: opt.answer_text,
+          is_case_sensitive: opt.is_case_sensitive,
+          is_exact_match: opt.is_exact_match,
+          answer_order: opt.answer_order
+        }));
+        questionData.shortAnswerMatchType = question.short_answer_match_type;
+        questionData.shortAnswerCaseSensitive = question.short_answer_case_sensitive;
+      }
+
+      // Add student's answer from quiz_data if submission exists
+      if (submission?.quiz_data) {
+        // Extract student answer from the nested structure
+        const studentAnswerData = submission.quiz_data.answers?.[question.id];
+        const detailedResult = submission.quiz_data.detailedResults?.[question.id];
+        
+        if (studentAnswerData || detailedResult) {
+          // Find correct answer text for comparison
+          let correctAnswerText = '';
+          if (question.question_type === 'multiple_choice' || question.question_type === 'true_false') {
+            const correctAnswer = questionData.answers.find(a => a.isCorrect);
+            correctAnswerText = correctAnswer?.answerText || '';
+          } else if (question.question_type === 'short_answer') {
+            const firstOption = questionData.shortAnswerOptions[0];
+            correctAnswerText = firstOption?.answer_text || '';
+          }
+          
+          questionData.studentAnswer = {
+            answer_text: studentAnswerData?.textAnswer || '',
+            selected_answer_id: studentAnswerData?.answerId || null,
+            is_correct: detailedResult?.correct ?? false,
+            points_earned: detailedResult?.points ?? 0,
+            is_graded: true,
+            manually_graded: detailedResult?.requiresManualGrading ?? false,
+            correct_answer_text: correctAnswerText
+          };
+        }
+      }
+
+      return questionData;
+    }) || [];
+
+    // Calculate percentage if submission exists
+    let percentage = 0;
+    let letterGrade = 'N/A';
+    let performanceLevel = null;
+
+    if (submission && submission.score !== null && assignment.max_points > 0) {
+      percentage = Math.round((submission.score / assignment.max_points) * 100);
+      letterGrade = calculateLetterGrade(percentage);
+      performanceLevel = calculatePerformanceLevel(percentage);
     }
 
     const studentName = `${student.first_name || ''} ${student.last_name || ''}`.trim();

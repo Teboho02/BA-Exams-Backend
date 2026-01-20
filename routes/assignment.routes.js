@@ -15,7 +15,8 @@ import {
   getUserSubmissions,
   verifyQuizPassword,
   submitQuizAnswers,
-  getQuizResults
+  getQuizResults,
+  getQuizResultsTeacher
 } from '../controllers/assignment.controller.js';
 
 const router = express.Router();
@@ -275,6 +276,11 @@ router.get('/submission/:submissionId/results',
   getQuizResults
 );
 
+router.get('/submission/:submissionId/results/:studentId', 
+  authenticateUser, 
+  submissionIdValidation, 
+  getQuizResultsTeacher
+);
 
 // Health check endpoint
 router.get('/health', (req, res) => {

@@ -46,6 +46,7 @@ const generalLimiter = rateLimit({
 });
 
 
+
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -61,6 +62,13 @@ app.use((req, res, next) => {
   next();
 });
 
+
+//load redis
+
+// client.connect();
+
+// client.on('error', (err) => console.log('Redis error', err));
+
 // Load API routes first (BEFORE static file serving)
 const routes = [
   { path: '/api/auth', file: './routes/auth.routes.js', name: 'Auth' },
@@ -68,6 +76,7 @@ const routes = [
   { path: '/api/assignments', file: './routes/assignment.routes.js', name: 'Assignment' },
   { path: '/api/quiz', file: './routes/quiz.routes.js', name: 'Quiz' },
   { path: '/api/teacher-review', file: './routes/teacherReview.routes.js', name: 'Teacher Review' },
+  {path : '/api/upload', file: './routes/upload.js', name: 'Upload' }
 ];
 
 for (const route of routes) {
@@ -197,9 +206,9 @@ app.get('*', (req, res) => {
   }
 
   const isStaticAsset = req.path.startsWith('/assets/') ||
-                       req.path.startsWith('/static/') ||
-                       req.path.startsWith('/favicon') ||
-                       req.path.match(/\.(js|mjs|css|ico|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot|map|json|txt|xml)$/i);
+    req.path.startsWith('/static/') ||
+    req.path.startsWith('/favicon') ||
+    req.path.match(/\.(js|mjs|css|ico|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot|map|json|txt|xml)$/i);
 
   if (isStaticAsset) {
     console.log(`❌ Static asset not found: ${req.path}`);

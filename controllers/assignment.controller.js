@@ -1,6 +1,6 @@
-// controllers/assignment.controller.js
 import { validationResult } from 'express-validator';
 import supabase from '../config/postgres.js';
+import { client } from '../config/redis.js';
 
 // Utility functions
 const createErrorResponse = (message, errors = null) => ({
@@ -1444,7 +1444,86 @@ export const getQuizResults = async (req, res) => {
 };
 
 
+// Get quiz results for student
+export const getQuizResultsTeacher = async (req, res) => {
+  try {
+    const { submissionId, userId } = req.params;
+   // const userId = req.user.id;
+
+    // Get submission with assignment details
+    const { data: submission, error: submissionError } = await supabase
+      .from('assignment_submissions')
+      .select(`
+        *,
+        assignments!inner(
+          id,
+          title,
+          show_correct_answers,
+          course_id,
+          courses!inner(instructor_id)
+        )
+      `)
+      .eq('id', submissionId)
+      .single();
+
+    if (submissionError || !submission) {
+      return res.status(404).json(createErrorResponse('Submission not found'));
+    }
+
+    // Check if user owns this submission or is instructor/admin
+    const isOwner = true;
+    const isInstructor = submission.assignments.courses.instructor_id === userId;
+    const isAdmin = req.user.role === 'admin';
+
+    if (!isOwner && !isInstructor && !isAdmin) {
+      return res.status(403).json(createErrorResponse('Not authorized to view this submission'));
+    }
+
+    // Get questions and answers if allowed to show correct answers
+    let questionsWithAnswers = null;
+    
+    if (submission.assignments.show_correct_answers && isOwner) {
+      const { data: questions } = await supabase
+        .from('quiz_questions')
+        .select(`
+          id,
+          title,
+          question_text,
+          points,
+          quiz_question_answers(*)
+        `)
+        .eq('assignment_id', submission.assignment_id)
+        .order('question_number');
+
+      questionsWithAnswers = questions;
+    }
+
+    res.json(createSuccessResponse({
+      submission: {
+        id: submission.id,
+        assignmentId: submission.assignment_id,
+        assignmentTitle: submission.assignments.title,
+        score: submission.score,
+        attemptNumber: submission.attempt_number,
+        submittedAt: submission.submitted_at,
+        quizData: submission.quiz_data,
+        status: submission.status,
+        feedback: submission.feedback
+      },
+      questions: questionsWithAnswers,
+      canViewAnswers: submission.assignments.show_correct_answers && isOwner
+    }));
+
+  } catch (error) {
+    console.error('Get quiz results error:', error);
+    res.status(500).json(createErrorResponse('Failed to fetch quiz results'));
+  }
+};
+
+
 export const getAssignment = async (req, res) => {
+
+  //add redis here to cache ressponses
   try {
     const { assignmentId } = req.params;
     const userId = req.user.id;
@@ -1788,5 +1867,6 @@ export default {
   getUserSubmissions,
   verifyQuizPassword,
   submitQuizAnswers,
-  getQuizResults
+  getQuizResults,
+  getQuizResultsTeacher
 };
